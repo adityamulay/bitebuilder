@@ -68,7 +68,7 @@
 <body>
 <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#86868B;font-size:18px">Loading BiteBuilder…</div></div>
 <script type="module">
-import { useState, useEffect, useCallback } from 'https://esm.sh/react@18';
+import { useState, useEffect, useCallback, useRef } from 'https://esm.sh/react@18';
 import { createRoot } from 'https://esm.sh/react-dom@18/client';
 import htm from 'https://esm.sh/htm@3';
 const html = htm.bind((await import('https://esm.sh/react@18')).default.createElement);
@@ -81,8 +81,10 @@ const INGREDIENTS = {
   'Grains':   ['Rice','Pasta','Bread','Oats','Quinoa','Noodles','Tortillas','Couscous','Poha (Flattened Rice)','Semolina (Rava)'],
   'Dairy':    ['Milk','Butter','Yogurt','Cheese','Cream','Sour Cream','Ghee'],
   'Pantry':   ['Olive Oil','Salt','Sugar','Flour','Soy Sauce','Vinegar','Honey','Tomato Sauce','Coconut Milk','Broth / Stock','Canned Tomatoes'],
-  'Spices':   ['Cumin','Turmeric','Paprika','Chili Powder','Cinnamon','Oregano','Basil','Garam Masala','Curry Powder','Black Pepper','Coriander','Mustard Seeds'],
 };
+// Spices are assumed to always be on hand, so they're left out of the picker
+// and out of ingredient-matching — they're still detected from recipe text
+// for spice-level scoring (see SPICY_WORDS) but never required or "missing."
 // Cuisine options limited to valid TheMealDB "area" values so cuisine filtering actually works
 const CUISINES   = ['Any','Indian','Italian','Mexican','Chinese','Japanese','Thai','French','American','Greek','Moroccan','Turkish','Spanish','British','Vietnamese'];
 const AGE_GROUPS = ['Any','Kids (3-10)','Teens (11-17)','Adults (18-60)','Seniors (60+)'];
@@ -412,6 +414,49 @@ function Slider({ label, value, onChange, min, max, displayFn }) {
   </div>`;
 }
 
+function Dropdown({ label, icon, value, options, onChange, last }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const onDoc = e => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  return html`<div ref=${ref} style=${{ marginBottom: last ? 0 : 18, position:'relative' }}>
+    <label style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+      <span>${icon}</span> ${label}
+    </label>
+    <button type="button" onClick=${()=>setOpen(o=>!o)} style=${{
+      width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
+      background:'#FBFBFD', border:`1px solid ${open ? C.sage : C.border}`, borderRadius:12,
+      padding:'11px 14px', fontSize:F.base, fontWeight:500, color:C.charcoal, cursor:'pointer',
+      boxShadow: open ? `0 0 0 3px ${C.sage}26` : 'none', transition:'border-color .15s, box-shadow .15s',
+    }}>
+      <span>${value}</span>
+      <span style=${{ display:'inline-block', fontSize:10, color:C.bark, transform: open?'rotate(180deg)':'rotate(0)', transition:'transform .15s' }}>▼</span>
+    </button>
+    ${open && html`<div style=${{
+      position:'absolute', top:'calc(100% + 6px)', left:0, right:0, zIndex:30,
+      background:'white', border:`1px solid ${C.border}`, borderRadius:14,
+      boxShadow:'0 14px 32px rgba(0,0,0,.14)', padding:6, maxHeight:260, overflowY:'auto',
+    }}>
+      ${options.map(o => html`<button key=${o} type="button"
+        onClick=${()=>{ onChange(o); setOpen(false); }}
+        style=${{
+          width:'100%', textAlign:'left', display:'flex', alignItems:'center', justifyContent:'space-between',
+          background: o===value ? C.greenBg : 'transparent', color: o===value ? C.sage : C.charcoal,
+          border:'none', borderRadius:9, padding:'9px 11px', fontSize:F.base,
+          fontWeight: o===value ? 600 : 400, cursor:'pointer', marginBottom:2,
+        }}>
+        <span>${o}</span>
+        ${o===value && html`<span>✓</span>`}
+      </button>`)}
+    </div>`}
+  </div>`;
+}
+
 // ─── FilterPanel ─────────────────────────────────────────────────────────────
 
 function FilterPanel({ f, setF }) {
@@ -436,23 +481,8 @@ function FilterPanel({ f, setF }) {
     <${Slider} label="Spice Level" value=${f.spiceLevel} onChange=${s('spiceLevel')} min=${1} max=${5}  displayFn=${spiceLabel} />
     <${Slider} label="Healthiness" value=${f.health}     onChange=${s('health')}     min=${1} max=${10} displayFn=${htLabel}    />
 
-    <div style=${{ marginBottom:18 }}>
-      <label style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-        <span>🌍</span> Cuisine
-      </label>
-      <select value=${f.cuisine} onChange=${e => s('cuisine')(e.target.value)}>
-        ${CUISINES.map(o => html`<option key=${o} value=${o}>${o}</option>`)}
-      </select>
-    </div>
-
-    <div>
-      <label style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
-        <span>👤</span> Age Group
-      </label>
-      <select value=${f.ageGroup} onChange=${e => s('ageGroup')(e.target.value)}>
-        ${AGE_GROUPS.map(o => html`<option key=${o} value=${o}>${o}</option>`)}
-      </select>
-    </div>
+    <${Dropdown} label="Cuisine" icon="🌍" value=${f.cuisine} options=${CUISINES} onChange=${s('cuisine')} />
+    <${Dropdown} label="Age Group" icon="👤" value=${f.ageGroup} options=${AGE_GROUPS} onChange=${s('ageGroup')} last=${true} />
   </div>`;
 }
 
