@@ -116,6 +116,27 @@ async function fetchJson(url) {
   return res.json();
 }
 
+// Free, keyless fallback for recipes whose own image is missing or broken:
+// search Wikimedia Commons for a real photo of the dish by name.
+const webImageCache = new Map();
+async function fetchWebImage(name) {
+  if (webImageCache.has(name)) return webImageCache.get(name);
+  try {
+    const q = encodeURIComponent(`${name} dish food`);
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${q}&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url&iiurlwidth=500&format=json&origin=*`;
+    const data = await fetchJson(url);
+    const pages = data?.query?.pages;
+    const page = pages ? Object.values(pages)[0] : null;
+    const info = page?.imageinfo?.[0];
+    const result = info?.thumburl || info?.url || null;
+    webImageCache.set(name, result);
+    return result;
+  } catch {
+    webImageCache.set(name, null);
+    return null;
+  }
+}
+
 function pickRandomLetters(n) {
   const letters = 'abcdefghijklmnoprstw'.split(''); // letters TheMealDB reliably has entries for
   const out = new Set();
@@ -556,8 +577,33 @@ function IngredientPicker({ selected, toggle }) {
 
 // ─── RecipeCard ───────────────────────────────────────────────────────────────
 
+// Shows a recipe's own image; if it's missing or fails to load, looks up a
+// real photo of the dish on Wikimedia Commons before finally falling back
+// to an emoji placeholder.
+function RecipeImage({ name, src, emoji, emojiSize, style }) {
+  const [current, setCurrent] = useState(src || null);
+  const [triedWeb, setTriedWeb] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => { setCurrent(src || null); setTriedWeb(false); setFailed(false); }, [src, name]);
+
+  const onError = async () => {
+    if (!triedWeb) {
+      setTriedWeb(true);
+      const found = await fetchWebImage(name);
+      if (found) { setCurrent(found); return; }
+    }
+    setFailed(true);
+  };
+
+  if (current && !failed) {
+    return html`<img src=${current} alt=${name} onError=${onError}
+      style=${{ width:'100%', height:'100%', objectFit:'cover', ...style }} />`;
+  }
+  return html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:emojiSize||48 }}>${emoji||'🍽️'}</div>`;
+}
+
 function RecipeCard({ r, onOpen, bookmarked, onBookmark }) {
-  const [imgErr, setImgErr] = useState(false);
   return html`
     <div class="card" onClick=${()=>onOpen(r)} style=${{
       background:'white', border:`1px solid ${C.border}`,
@@ -565,12 +611,7 @@ function RecipeCard({ r, onOpen, bookmarked, onBookmark }) {
       boxShadow:'0 2px 8px rgba(0,0,0,0.04)'
     }}>
       <div style=${{ position:'relative', height:180, background:C.parchment, overflow:'hidden' }}>
-        ${!imgErr && r.image
-          ? html`<img src=${r.image} alt=${r.name}
-              onError=${()=>setImgErr(true)}
-              style=${{ width:'100%', height:'100%', objectFit:'cover' }} />`
-          : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:48 }}>🍽️</div>`
-        }
+        <${RecipeImage} name=${r.name} src=${r.image} emoji="🍽️" emojiSize=${48} />
         <button onClick=${e=>{e.stopPropagation();onBookmark(r.name);}} style=${{
           position:'absolute', top:10, right:10,
           background:'rgba(255,255,255,0.92)', border:'none',
@@ -617,18 +658,12 @@ function RecipeCard({ r, onOpen, bookmarked, onBookmark }) {
 // ─── GroceryCard ──────────────────────────────────────────────────────────────
 
 function GroceryCard({ r, onOpen }) {
-  const [imgErr, setImgErr] = useState(false);
   return html`
     <div class="card" onClick=${()=>onOpen(r)} style=${{
       background:'white', border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden', cursor:'pointer',
     }}>
       <div style=${{ height:140, background:C.parchment, overflow:'hidden' }}>
-        ${!imgErr && r.image
-          ? html`<img src=${r.image} alt=${r.name}
-              onError=${()=>setImgErr(true)}
-              style=${{ width:'100%',height:'100%',objectFit:'cover',opacity:.85 }} />`
-          : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40 }}>🛒</div>`
-        }
+        <${RecipeImage} name=${r.name} src=${r.image} emoji="🛒" emojiSize=${40} style=${{ opacity:.85 }} />
       </div>
       <div style=${{ padding:14 }}>
         <div style=${{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
@@ -651,7 +686,6 @@ function GroceryCard({ r, onOpen }) {
 // ─── RecipeModal ──────────────────────────────────────────────────────────────
 
 function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
-  const [imgErr, setImgErr] = useState(false);
   if (!r) return null;
 
   const doShare = () => {
@@ -684,12 +718,7 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
         maxHeight:'90vh', overflowY:'auto',
       }}>
         <div style=${{ position:'relative', height:260, background:C.parchment, flexShrink:0 }}>
-          ${!imgErr && r.image
-            ? html`<img src=${r.image} alt=${r.name}
-                onError=${()=>setImgErr(true)}
-                style=${{ width:'100%',height:'100%',objectFit:'cover' }} />`
-            : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:72 }}>🍽️</div>`
-          }
+          <${RecipeImage} name=${r.name} src=${r.image} emoji="🍽️" emojiSize=${72} />
           <button onClick=${onClose} style=${{
             position:'absolute', top:14, left:14,
             background:'rgba(255,255,255,0.9)', border:'none',
