@@ -300,7 +300,7 @@ async function buildCandidatePool(ingredients, filters) {
   return pool;
 }
 
-function scoreMeal(meal, ingNames, filters, history) {
+function scoreMeal(meal, ingNames, filters) {
   const ingredients = mealIngredients(meal);
   const instructions = mealInstructions(meal);
   const diet = classifyDiet(ingredients);
@@ -319,11 +319,6 @@ function scoreMeal(meal, ingNames, filters, history) {
   const desiredSpice = filters.ageGroup === 'Kids (3-10)' ? Math.min(filters.spiceLevel,2) : filters.spiceLevel;
   score += (5 - Math.abs(spice - desiredSpice)) * 3;
   score += (10 - Math.abs(health - filters.health)) * 1.5;
-
-  const likedNames    = history.flatMap(h=>h.liked||[]);
-  const dislikedNames = history.flatMap(h=>h.disliked||[]);
-  if (likedNames.includes(meal.strMeal)) score += 10;
-  if (dislikedNames.includes(meal.strMeal)) score -= 30;
 
   return { score, diet, spice, health, ingredients, instructions, matched, meal };
 }
@@ -358,18 +353,24 @@ function toGroceryShape(x) {
   return {
     name: m.strMeal,
     description: `${m.strArea} ${m.strCategory.toLowerCase()} — just ${x.missing.length} item${x.missing.length===1?'':'s'} away.`,
-    image: m.strMealThumb,
-    missingIngredients: x.missing,
+    cuisine: m.strArea,
     prepTime: guessPrepTime(x.instructions),
+    servings: 2,
+    image: m.strMealThumb,
+    tags: [x.diet, x.spice>=4 ? '🌶 Spicy' : x.spice<=1 ? 'Mild' : null].filter(Boolean),
+    ingredients: x.ingredients.map(i => `${i.measure ? i.measure+' ' : ''}${i.name}`),
+    instructions: x.instructions,
+    nutritionHighlights: nutritionLine(x.health),
+    missingIngredients: x.missing,
   };
 }
 
-async function generateSuggestions(ingredients, filters, history) {
+async function generateSuggestions(ingredients, filters) {
   const pool = await buildCandidatePool(ingredients, filters);
   if (!pool.length) throw new Error('Could not reach the recipe service. Check your connection and try again.');
 
   const ingNames = [...ingredients];
-  let scored = pool.map(meal => scoreMeal(meal, ingNames, filters, history));
+  let scored = pool.map(meal => scoreMeal(meal, ingNames, filters));
 
   // App is vegetarian/vegan only — always exclude meat, fish and eggs.
   scored = scored.filter(x => x.diet !== 'Non-Vegetarian');
@@ -526,6 +527,19 @@ function IngredientPicker({ selected, toggle }) {
           ${cat}
         </button>
         ${open[cat] && html`<div style=${{ display:'flex', flexWrap:'wrap', gap:7, marginBottom:4 }}>
+          ${cat==='Dairy' && (() => {
+            const allSelected = items.every(i => selected.has(i));
+            return html`<button key="__all_dairy" onClick=${() => items.forEach(i => {
+              if (allSelected) { if (selected.has(i)) toggle(i); }
+              else { if (!selected.has(i)) toggle(i); }
+            })} style=${{
+              background: allSelected ? C.sage : 'white',
+              color:      allSelected ? 'white' : C.sage,
+              border:    `1px dashed ${C.sage}`,
+              padding: '5px 11px', borderRadius:99, fontSize:F.xs,
+              fontWeight:600, cursor:'pointer', transition:'all .12s',
+            }}>${allSelected ? '✓ ' : ''}All / Any</button>`;
+          })()}
           ${items.map(item => html`<button key=${item} onClick=${()=>toggle(item)} style=${{
             background: selected.has(item) ? C.sage : C.cream,
             color:      selected.has(item) ? 'white' : C.charcoal,
@@ -542,7 +556,7 @@ function IngredientPicker({ selected, toggle }) {
 
 // ─── RecipeCard ───────────────────────────────────────────────────────────────
 
-function RecipeCard({ r, onOpen, bookmarked, onBookmark, fb, onFb }) {
+function RecipeCard({ r, onOpen, bookmarked, onBookmark }) {
   const [imgErr, setImgErr] = useState(false);
   return html`
     <div class="card" onClick=${()=>onOpen(r)} style=${{
@@ -586,16 +600,14 @@ function RecipeCard({ r, onOpen, bookmarked, onBookmark, fb, onFb }) {
 
         <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between' }}
           onClick=${e=>e.stopPropagation()}>
-          <div style=${{ display:'flex', gap:5 }}>
-            <button onClick=${()=>onFb(r.name,'up')} style=${{
-              background:fb==='up'?C.sage:C.parchment, color:fb==='up'?'white':C.stone,
-              border:'none', padding:'6px 11px', borderRadius:99, cursor:'pointer', fontSize:F.base,
-            }}>👍</button>
-            <button onClick=${()=>onFb(r.name,'down')} style=${{
-              background:fb==='down'?C.terra:C.parchment, color:fb==='down'?'white':C.stone,
-              border:'none', padding:'6px 11px', borderRadius:99, cursor:'pointer', fontSize:F.base,
-            }}>👎</button>
-          </div>
+          <button onClick=${() => {
+            const text = `🍽️ ${r.name}\n\n${r.description}\n\nPrep: ${r.prepTime} · ${r.servings||2} servings\n\nIngredients:\n${(r.ingredients||[]).join('\n')}\n\nInstructions:\n${(r.instructions||[]).map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n${r.nutritionHighlights||''}`;
+            navigator.share ? navigator.share({title:r.name,text}) : navigator.clipboard.writeText(text).then(()=>alert('Recipe copied to clipboard!'));
+          }} style=${{
+            background:C.parchment, color:C.stone,
+            border:'none', padding:'6px 13px', borderRadius:99, cursor:'pointer',
+            fontSize:F.base, display:'flex', alignItems:'center', gap:6,
+          }}>📤 Share</button>
           <${Tag} label=${r.cuisine||''} />
         </div>
       </div>
@@ -638,7 +650,7 @@ function GroceryCard({ r, onOpen }) {
 
 // ─── RecipeModal ──────────────────────────────────────────────────────────────
 
-function RecipeModal({ r, onClose, bookmarked, onBookmark, fb, onFb }) {
+function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
   const [imgErr, setImgErr] = useState(false);
   if (!r) return null;
 
@@ -716,9 +728,21 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark, fb, onFb }) {
 
           <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, marginBottom:12 }}>Ingredients</h3>
           <ul style=${{ margin:'0 0 20px', padding:0, listStyle:'none' }}>
-            ${(r.ingredients||[]).map((ing,i) => html`<li key=${i} style=${{
-              display:'flex', gap:8, fontSize:F.base, color:C.charcoal, marginBottom:7,
-            }}><span style=${{ color:C.sage, marginTop:2, flexShrink:0 }}>•</span>${ing}</li>`)}
+            ${(r.ingredients||[]).map((ing,i) => {
+              const isMissing = (r.missingIngredients||[]).some(mi => ing.toLowerCase().includes(mi.toLowerCase()));
+              return html`<li key=${i} style=${{
+                display:'flex', alignItems:'center', gap:8, fontSize:F.base,
+                color: isMissing ? C.terra : C.charcoal, marginBottom:7,
+                fontWeight: isMissing ? 600 : 400,
+              }}>
+                <span style=${{ color: isMissing ? C.terra : C.sage, marginTop:2, flexShrink:0 }}>${isMissing ? '✕' : '•'}</span>
+                <span>${ing}</span>
+                ${isMissing && html`<span style=${{
+                  background:C.orangeBg, color:C.terra, fontSize:F.xs, fontWeight:700,
+                  padding:'2px 8px', borderRadius:99,
+                }}>missing</span>`}
+              </li>`;
+            })}
           </ul>
 
           <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, marginBottom:12 }}>Instructions</h3>
@@ -736,8 +760,6 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark, fb, onFb }) {
           <div style=${{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', gap:12,
             paddingTop:16, borderTop:`1px solid ${C.border}` }}>
             <div style=${{ display:'flex', gap:8 }}>
-              ${btn('👍 Like', fb==='up', C.sage, ()=>onFb(r.name,'up'))}
-              ${btn('👎 Pass', fb==='down', C.terra, ()=>onFb(r.name,'down'))}
               ${btn(bookmarked?'🔖 Saved':'🤍 Save', bookmarked, C.bark, ()=>onBookmark(r.name))}
             </div>
             <div style=${{ display:'flex', gap:8 }}>
@@ -768,15 +790,11 @@ function App() {
   const [error,       setError]       = useState('');
   const [selected,    setSelected]    = useState(null);
   const [bookmarks,   setBookmarks]   = useState(() => new Set(load('bb_bookmarks',[])));
-  const [feedback,    setFeedback]    = useState(() => load('bb_feedback',{}));
-  const [history,     setHistory]     = useState(() => load('bb_history',[]));
   const [tab,         setTab]         = useState('suggest');
 
   useEffect(() => save('bb_ing',      [...ingredients]),[ingredients]);
   useEffect(() => save('bb_filters',  filters),       [filters]);
   useEffect(() => save('bb_bookmarks',[...bookmarks]), [bookmarks]);
-  useEffect(() => save('bb_feedback', feedback),      [feedback]);
-  useEffect(() => save('bb_history',  history),       [history]);
 
   const toggleIng = useCallback(item => setIngredients(p => {
     const n = new Set(p); n.has(item) ? n.delete(item) : n.add(item); return n;
@@ -784,18 +802,11 @@ function App() {
   const toggleBookmark = useCallback(name => setBookmarks(p => {
     const n = new Set(p); n.has(name) ? n.delete(name) : n.add(name); return n;
   }), []);
-  const handleFb = useCallback((name, type) => setFeedback(p => ({
-    ...p, [name]: p[name]===type ? null : type,
-  })), []);
 
   const generate = async () => {
     setLoading(true); setError('');
     try {
-      const liked    = Object.entries(feedback).filter(([,v])=>v==='up').map(([k])=>k);
-      const disliked = Object.entries(feedback).filter(([,v])=>v==='down').map(([k])=>k);
-      const hist     = [...history.slice(-19), { date:today(), liked, disliked }];
-      setHistory(hist);
-      const result = await generateSuggestions(ingredients, filters, hist);
+      const result = await generateSuggestions(ingredients, filters);
       setRecipes(result.recipes||[]);
       setGrocery(result.grocerySuggestions||[]);
       setTab('suggest');
@@ -901,8 +912,7 @@ function App() {
                 </div>
                 <div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:16, marginBottom:48 }}>
                   ${recipes.map(r => html`<${RecipeCard} key=${r.name} r=${r} onOpen=${setSelected}
-                    bookmarked=${bookmarks.has(r.name)} onBookmark=${toggleBookmark}
-                    fb=${feedback[r.name]} onFb=${handleFb} />`)}
+                    bookmarked=${bookmarks.has(r.name)} onBookmark=${toggleBookmark} />`)}
                 </div>
 
                 ${grocery.length>0 && html`
@@ -941,15 +951,13 @@ function App() {
               </div>`
             : html`<div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:16 }}>
                 ${savedList.map(r => html`<${RecipeCard} key=${r.name} r=${r} onOpen=${setSelected}
-                  bookmarked onBookmark=${toggleBookmark}
-                  fb=${feedback[r.name]} onFb=${handleFb} />`)}
+                  bookmarked onBookmark=${toggleBookmark} />`)}
               </div>`}
         </div>`}
     </div>
 
     ${selected && html`<${RecipeModal} r=${selected} onClose=${()=>setSelected(null)}
-      bookmarked=${bookmarks.has(selected.name)} onBookmark=${toggleBookmark}
-      fb=${feedback[selected.name]} onFb=${handleFb} />`}
+      bookmarked=${bookmarks.has(selected.name)} onBookmark=${toggleBookmark} />`}
   </div>`;
 }
 

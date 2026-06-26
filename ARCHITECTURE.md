@@ -42,9 +42,9 @@ The app is vegetarian/vegan only by design. `classifyDiet` looks at an ingredien
 
 There is no AI model involved — an earlier version called the Claude API for this, but it was replaced with a transparent local scoring formula so the app needs no API key and no per-request cost:
 
-1. **`buildCandidatePool`** gathers a pool of candidate recipes from TheMealDB (filtered loosely by cuisine, meal type, and up to three selected ingredients, plus a few random letters for variety) and always merges in the curated Indian set.
-2. **`scoreMeal`** scores each candidate: ingredient overlap with what the user has on hand (up to 40 points), a cuisine match bonus, a meal-type match bonus, closeness to the requested spice level and healthiness, and a personalization bonus/penalty based on the user's own like/dislike history for that dish name.
-3. **`generateSuggestions`** hard-filters by diet, sorts by score, takes the top 5 as the main recipe suggestions, and separately picks a few lower-ranked but "almost there" recipes (missing 1–4 ingredients) as the grocery-run suggestions.
+1. **`buildCandidatePool`** gathers a pool of candidate recipes from TheMealDB (filtered loosely by cuisine, meal type, and up to three selected ingredients, plus a few random letters for variety) and merges in the curated Indian set — but only when no other specific cuisine is selected, so picking e.g. Italian isn't diluted with Indian dishes. When a specific cuisine is selected, the pool prefers an exact match (falling back to the broader pool only if too few exact matches exist).
+2. **`scoreMeal`** scores each candidate: ingredient overlap with what the user has on hand (up to 40 points), a cuisine match bonus (and a real penalty for a mismatch), a meal-type match bonus, and closeness to the requested spice level and healthiness.
+3. **`generateSuggestions`** hard-filters by diet, sorts by score, takes the top 5 as the main recipe suggestions, and separately picks a few lower-ranked but "almost there" recipes (missing 1–4 ingredients) as the grocery-run suggestions — these include full ingredients/instructions too, with the missing ones highlighted in the recipe view.
 
 ## Persistence
 
@@ -53,10 +53,8 @@ Everything is stored in `localStorage`, scoped to the browser/device it runs on 
 - `bb_ing` — selected ingredients
 - `bb_filters` — diet/spice/health/cuisine/age/meal-type preferences
 - `bb_bookmarks` — saved recipes
-- `bb_feedback` — per-recipe like/dislike
-- `bb_history` — a rolling log of past sessions' likes/dislikes, used for personalization
 
-Because this is per-device, each family member who installs the app gets their own private bookmarks and history — nothing syncs between phones, which keeps the architecture simple and avoids needing any backend or login.
+Because this is per-device, each family member who installs the app gets their own private bookmarks — nothing syncs between phones, which keeps the architecture simple and avoids needing any backend or login.
 
 ## Hosting and distribution
 
