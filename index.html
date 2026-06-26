@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BiteBuilder — Personalized Meal Ideas</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Inter', system-ui, sans-serif; box-sizing: border-box; }
+    body { background: #FAFAFA; margin: 0; -webkit-font-smoothing: antialiased; }
+    .font-serif { font-weight: 700; letter-spacing: -0.015em; }
+
+    .card { transition: transform 0.18s ease, box-shadow 0.18s ease; }
+    .card:hover { transform: translateY(-3px); box-shadow: 0 10px 30px rgba(0,0,0,0.09); }
+
+    .modal-bg  { animation: fadein .15s ease; }
+    .modal-box { animation: slideup .2s ease; }
+    @keyframes fadein  { from{opacity:0} to{opacity:1} }
+    @keyframes slideup { from{opacity:0;transform:translateY(20px)} to{opacity:1;transform:translateY(0)} }
+
+    @keyframes spin    { to{transform:rotate(360deg)} }
+    @keyframes bounce  { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-10px)} }
+    .spin   { display:inline-block; animation:spin 1s linear infinite; }
+    .bounce { display:inline-block; animation:bounce 1.2s ease infinite; }
+
+    input[type=range]{-webkit-appearance:none;width:100%;height:5px;border-radius:99px;outline:none;cursor:pointer;}
+    input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#4FA66B;cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.2);}
+
+    .cta-btn{background:linear-gradient(135deg,#5DC382,#3E9760); transition:transform .15s ease, box-shadow .15s ease, filter .15s ease;}
+    .cta-btn:hover:not(:disabled){transform:translateY(-2px); box-shadow:0 10px 24px rgba(62,151,96,.42) !important; filter:brightness(1.04);}
+    .cta-btn:active:not(:disabled){transform:translateY(0); filter:brightness(0.97);}
+
+    ::-webkit-scrollbar{width:5px}
+    ::-webkit-scrollbar-track{background:#F5F5F7}
+    ::-webkit-scrollbar-thumb{background:#C7C7CC;border-radius:4px}
+
+    select{
+      -webkit-appearance:none; -moz-appearance:none; appearance:none;
+      border:1px solid #E5E5E7; background:#FBFBFD; color:#1D1D1F;
+      border-radius:12px; padding:11px 40px 11px 14px; width:100%;
+      font-size:15px; font-weight:500; outline:none; cursor:pointer;
+      transition:border-color .15s, box-shadow .15s, background .15s;
+      background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%2386868B' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+      background-repeat:no-repeat; background-position:right 14px center;
+    }
+    select:hover{border-color:#C7C7CC; background-color:white;}
+    select:focus{border-color:#4FA66B; box-shadow:0 0 0 3px #4FA66B26; background-color:white;}
+
+    @media(max-width:768px){
+      .layout{grid-template-columns:1fr !important;}
+      .sidebar{position:static !important;max-height:none !important;}
+    }
+  </style>
+</head>
+<body>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#86868B;font-size:18px">Loading BiteBuilder…</div></div>
+<script type="module">
+import { useState, useEffect, useCallback } from 'https://esm.sh/react@18';
+import { createRoot } from 'https://esm.sh/react-dom@18/client';
+import htm from 'https://esm.sh/htm@3';
+const html = htm.bind((await import('https://esm.sh/react@18')).default.createElement);
+
+// ─── Constants ──────────────────────────────────────────────────────────────
+
+const INGREDIENTS = {
+  'Produce':  ['Onion','Garlic','Tomato','Potato','Spinach','Bell Pepper','Carrot','Cucumber','Lemon','Ginger','Mushroom','Zucchini','Broccoli','Eggplant','Sweet Potato','Kale'],
+  'Protein':  ['Tofu','Lentils','Chickpeas','Paneer','Black Beans','Kidney Beans','Mixed Beans'],
+  'Grains':   ['Rice','Pasta','Bread','Oats','Quinoa','Noodles','Tortillas','Couscous','Poha (Flattened Rice)','Semolina (Rava)'],
+  'Dairy':    ['Milk','Butter','Yogurt','Cheese','Cream','Sour Cream','Ghee'],
+  'Pantry':   ['Olive Oil','Salt','Sugar','Flour','Soy Sauce','Vinegar','Honey','Tomato Sauce','Coconut Milk','Broth / Stock','Canned Tomatoes'],
+  'Spices':   ['Cumin','Turmeric','Paprika','Chili Powder','Cinnamon','Oregano','Basil','Garam Masala','Curry Powder','Black Pepper','Coriander','Mustard Seeds'],
+};
+// Cuisine options limited to valid TheMealDB "area" values so cuisine filtering actually works
+const CUISINES   = ['Any','Indian','Italian','Mexican','Chinese','Japanese','Thai','French','American','Greek','Moroccan','Turkish','Spanish','British','Vietnamese'];
+const AGE_GROUPS = ['Any','Kids (3-10)','Teens (11-17)','Adults (18-60)','Seniors (60+)'];
+const MEAL_TYPES = ['Any','Breakfast','Lunch','Dinner','Snack','Dessert'];
+const DAYS       = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+const today      = () => DAYS[new Date().getDay()];
+const save       = (k,v) => { try{ localStorage.setItem(k,JSON.stringify(v)); }catch{} };
+const load       = (k,d) => { try{ const v=localStorage.getItem(k); return v?JSON.parse(v):d; }catch{ return d; } };
+const spiceLabel = n => ['','Mild','Low','Medium','Hot','🌶 Fiery'][n] || 'Medium';
+const htLabel    = n => n<=2?'Indulgent':n<=5?'Balanced':n<=7?'Healthy':'Very Healthy';
+
+// ─── TheMealDB (free, no key) ─────────────────────────────────────────────────
+
+const MEALDB = 'https://www.themealdb.com/api/json/v1/1';
+const MEAT_WORDS    = ['chicken','beef','pork','lamb','bacon','sausage','fish','salmon','tuna','shrimp','prawn','crab','turkey','duck','venison','anchovy','gelatin','meat','veal','mutton','goat','ham','chorizo','pepperoni','lobster','squid','octopus'];
+const EXCLUDE_WORDS  = [...MEAT_WORDS, 'egg','eggs','mayonnaise','mayo','lard'];
+const DAIRY_WORDS   = ['milk','butter','cheese','cream','yogurt','yoghurt','honey','ghee','paneer'];
+const SPICY_WORDS   = ['chili','chilli','cayenne','jalapeno','habanero','hot sauce','paprika','scotch bonnet','sriracha','curry powder','red pepper flakes','gochujang','wasabi','horseradish','green chili','red chili powder'];
+const UNHEALTHY_WORDS = ['fried','deep-fried','butter','cream','sugar','bacon','mayonnaise','syrup','lard'];
+const HEALTHY_WORDS   = ['grilled','steamed','salad','vegetable','boiled','baked','fresh','lean','broth','spinach','kale','quinoa'];
+const STAPLES = ['salt','water','pepper','black pepper','oil','olive oil'];
+
+async function fetchJson(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('Recipe service unavailable');
+  return res.json();
+}
+
+function pickRandomLetters(n) {
+  const letters = 'abcdefghijklmnoprstw'.split(''); // letters TheMealDB reliably has entries for
+  const out = new Set();
+  while (out.size < n && out.size < letters.length) out.add(letters[Math.floor(Math.random()*letters.length)]);
+  return [...out];
+}
+
+function mealIngredients(meal) {
+  const out = [];
+  for (let i=1;i<=20;i++){
+    const name = meal[`strIngredient${i}`];
+    const measure = meal[`strMeasure${i}`];
+    if (name && name.trim()) out.push({ name: name.trim(), measure: (measure||'').trim() });
+  }
+  return out;
+}
+function mealInstructions(meal) {
+  return (meal.strInstructions||'').split(/\r?\n+/).map(s=>s.trim()).filter(Boolean);
+}
+function classifyDiet(ingredients) {
+  const names = ingredients.map(i=>i.name.toLowerCase());
+  if (names.some(n => EXCLUDE_WORDS.some(w => n.includes(w)))) return 'Non-Vegetarian';
+  if (names.some(n => DAIRY_WORDS.some(w => n.includes(w)))) return 'Vegetarian';
+  return 'Vegan';
+}
+function spiceScore(ingredients, instructions) {
+  const text = (ingredients.map(i=>i.name).join(' ') + ' ' + instructions.join(' ')).toLowerCase();
+  let hits = 0;
+  SPICY_WORDS.forEach(w => { if (text.includes(w)) hits++; });
+  return Math.min(5, Math.max(1, hits===0?1:hits+1));
+}
+function healthScoreOf(ingredients, instructions) {
+  const text = (ingredients.map(i=>i.name).join(' ') + ' ' + instructions.join(' ')).toLowerCase();
+  let score = 5;
+  UNHEALTHY_WORDS.forEach(w => { if (text.includes(w)) score -= 0.8; });
+  HEALTHY_WORDS.forEach(w => { if (text.includes(w)) score += 0.8; });
+  return Math.min(10, Math.max(1, Math.round(score)));
+}
+function guessPrepTime(steps) {
+  if (steps.length <= 4) return '20 mins';
+  if (steps.length <= 8) return '35 mins';
+  return '50 mins';
+}
+function nutritionLine(h) {
+  return h>=8 ? 'Light & veggie-forward' : h>=6 ? 'Balanced nutrition' : h>=4 ? 'Hearty comfort food' : 'Indulgent treat';
+}
+function computeMissing(ingredients, selectedNames) {
+  const lowerSel = selectedNames.map(n=>n.toLowerCase());
+  return ingredients.map(i=>i.name).filter(name => {
+    const ln = name.toLowerCase();
+    if (STAPLES.some(s=>ln.includes(s))) return false;
+    return !lowerSel.some(s => ln.includes(s) || s.includes(ln));
+  });
+}
+
+// ─── Curated Indian recipes (built-in, free, vegetarian/vegan only) ──────────
+// TheMealDB's Indian coverage is thin, so these ~18 hand-picked dishes are
+// embedded directly in the app — no extra API or key needed.
+
+function indianMeal({ id, name, category, image, ingredients, steps }) {
+  const m = { idMeal: id, strMeal: name, strCategory: category, strArea: 'Indian', strMealThumb: image, strInstructions: steps.join('\n') };
+  ingredients.forEach(([n,measure], i) => { m[`strIngredient${i+1}`] = n; m[`strMeasure${i+1}`] = measure; });
+  return m;
+}
+const wiki = f => `https://commons.wikimedia.org/wiki/Special:FilePath/${f}`;
+
+const INDIAN_RECIPES = [
+  indianMeal({ id:'in1', name:'Masala Dosa', category:'Breakfast', image:wiki('Masala_dosa.JPG'),
+    ingredients:[['Rice','2 cups'],['Urad Dal','½ cup'],['Potato','3, boiled'],['Onion','1, sliced'],['Mustard Seeds','1 tsp'],['Turmeric','½ tsp'],['Green Chili','2'],['Curry Leaves','a few'],['Oil','2 tbsp'],['Salt','to taste']],
+    steps:['Soak rice and urad dal separately for 5-6 hours, then grind into a smooth batter and let it ferment overnight.','For the filling, mash boiled potatoes and sauté with mustard seeds, onion, turmeric, green chili and curry leaves until fragrant.','Heat a flat griddle, spread a thin layer of batter into a large crepe and drizzle with oil.','Spoon the potato filling onto one half, fold the dosa over and cook until golden and crisp.','Serve hot with coconut chutney and sambar.']}),
+  indianMeal({ id:'in2', name:'Chana Masala', category:'Lunch', image:wiki('Chana_Masala.JPG'),
+    ingredients:[['Chickpeas','2 cups, cooked'],['Onion','1, chopped'],['Tomato','2, pureed'],['Ginger','1 tbsp, minced'],['Garlic','3 cloves'],['Garam Masala','1 tsp'],['Red Chili Powder','1 tsp'],['Cumin','1 tsp'],['Oil','2 tbsp'],['Coriander','for garnish']],
+    steps:['Heat oil and sauté cumin seeds, onion, ginger and garlic until golden.','Add tomato puree, red chili powder and garam masala; cook until the oil separates.','Stir in the cooked chickpeas and a splash of water, then simmer for 12-15 minutes.','Mash a few chickpeas lightly to thicken the gravy.','Garnish with fresh coriander and serve with rice or roti.']}),
+  indianMeal({ id:'in3', name:'Paneer Butter Masala', category:'Dinner', image:wiki('Paneer_Butter_Masala.jpg'),
+    ingredients:[['Paneer','250g, cubed'],['Butter','3 tbsp'],['Tomato','4, pureed'],['Cream','¼ cup'],['Cashews','10, soaked'],['Garam Masala','1 tsp'],['Red Chili Powder','½ tsp'],['Ginger','1 tbsp'],['Sugar','1 tsp'],['Salt','to taste']],
+    steps:['Blend soaked cashews with tomato puree and ginger into a smooth paste.','Melt butter in a pan and cook the tomato-cashew paste until thick and glossy.','Season with garam masala, red chili powder, sugar and salt.','Fold in the paneer cubes and simmer for 5 minutes.','Finish with a swirl of cream and serve with naan.']}),
+  indianMeal({ id:'in4', name:'Aloo Gobi', category:'Lunch', image:wiki('Aloo_gobi.jpg'),
+    ingredients:[['Potato','2, cubed'],['Cauliflower','1, florets'],['Onion','1, chopped'],['Turmeric','1 tsp'],['Cumin','1 tsp'],['Red Chili Powder','1 tsp'],['Ginger','1 tsp'],['Oil','3 tbsp'],['Coriander','for garnish']],
+    steps:['Heat oil and toast cumin seeds, then add chopped onion and ginger.','Add turmeric and red chili powder, followed by potato and cauliflower.','Cover and cook on low heat, stirring occasionally, until vegetables are tender.','Adjust salt and finish with chopped coriander.','Serve with roti or steamed rice.']}),
+  indianMeal({ id:'in5', name:'Dal Tadka', category:'Dinner', image:wiki('Dal_tadka.jpg'),
+    ingredients:[['Lentils','1 cup, yellow'],['Tomato','1, chopped'],['Onion','1, chopped'],['Garlic','3 cloves'],['Cumin','1 tsp'],['Turmeric','½ tsp'],['Mustard Seeds','½ tsp'],['Oil','2 tbsp'],['Coriander','for garnish']],
+    steps:['Boil lentils with turmeric and a pinch of salt until soft, then lightly mash.','In a separate pan, heat oil and crackle mustard and cumin seeds.','Add garlic, onion and tomato; cook until softened.','Pour the tempering over the boiled lentils and simmer 5 minutes.','Garnish with coriander and serve with steamed rice.']}),
+  indianMeal({ id:'in6', name:'Palak Paneer', category:'Dinner', image:wiki('Palak_paneer.JPG'),
+    ingredients:[['Spinach','500g'],['Paneer','200g, cubed'],['Onion','1, chopped'],['Tomato','1, chopped'],['Cream','2 tbsp'],['Garam Masala','1 tsp'],['Ginger','1 tsp'],['Garlic','2 cloves'],['Oil','2 tbsp']],
+    steps:['Blanch spinach briefly in hot water, then blend into a smooth puree.','Sauté onion, garlic, ginger and tomato in oil until soft.','Stir in the spinach puree and garam masala, simmer 5 minutes.','Add paneer cubes and a splash of cream; warm through.','Serve with roti or rice.']}),
+  indianMeal({ id:'in7', name:'Vegetable Biryani', category:'Dinner', image:wiki('Vegetable_biryani.jpg'),
+    ingredients:[['Rice','2 cups, basmati'],['Mixed Vegetables','2 cups'],['Yogurt','½ cup'],['Onion','1, sliced'],['Ghee','2 tbsp'],['Garam Masala','1 tsp'],['Mint','a handful'],['Saffron','a pinch'],['Ginger','1 tbsp']],
+    steps:['Soak basmati rice and parboil it with whole spices until just tender.','Marinate mixed vegetables in yogurt, garam masala and ginger.','Layer the vegetables and partially-cooked rice in a heavy pot, dotting with ghee and saffron milk.','Cover tightly and cook on low heat (dum) for 20 minutes.','Gently fluff and garnish with fried onions and mint before serving.']}),
+  indianMeal({ id:'in8', name:'Rajma', category:'Lunch', image:wiki('Rajma_masala.jpg'),
+    ingredients:[['Kidney Beans','2 cups, cooked'],['Onion','1, chopped'],['Tomato','2, pureed'],['Ginger','1 tbsp'],['Garlic','3 cloves'],['Garam Masala','1 tsp'],['Cumin','1 tsp'],['Oil','2 tbsp'],['Coriander','for garnish']],
+    steps:['Sauté cumin, onion, ginger and garlic in oil until golden.','Add tomato puree and garam masala, cooking until thickened.','Stir in cooked kidney beans with a little water and simmer 15 minutes, mashing a few beans to thicken.','Adjust seasoning and garnish with coriander.','Serve with steamed rice.']}),
+  indianMeal({ id:'in9', name:'Idli Sambar', category:'Breakfast', image:wiki('Idli_sambhar.JPG'),
+    ingredients:[['Rice','2 cups'],['Urad Dal','1 cup'],['Lentils','1 cup, for sambar'],['Tamarind','1 tbsp'],['Carrot','1, diced'],['Mustard Seeds','1 tsp'],['Curry Leaves','a few'],['Turmeric','½ tsp'],['Oil','1 tbsp']],
+    steps:['Soak and grind rice and urad dal, ferment overnight, then steam spoonfuls in an idli mold until fluffy.','Boil lentils with turmeric and diced vegetables until soft.','Stir tamarind pulp and sambar spices into the lentils and simmer.','Temper with mustard seeds and curry leaves in oil, then pour over the sambar.','Serve warm idlis alongside the sambar and coconut chutney.']}),
+  indianMeal({ id:'in10', name:'Baingan Bharta', category:'Dinner', image:wiki('Baingan_bharta.jpg'),
+    ingredients:[['Eggplant','1 large'],['Onion','1, chopped'],['Tomato','2, chopped'],['Garlic','3 cloves'],['Green Chili','2'],['Cumin','1 tsp'],['Red Chili Powder','½ tsp'],['Oil','2 tbsp'],['Coriander','for garnish']],
+    steps:['Roast the whole eggplant over a flame or in a hot oven until the skin blisters and the flesh softens.','Peel and mash the eggplant flesh.','Sauté cumin, onion, garlic and green chili in oil until golden, then add tomato.','Stir in the mashed eggplant and red chili powder, cooking until well combined.','Finish with coriander and serve with roti.']}),
+  indianMeal({ id:'in11', name:'Chole Bhature', category:'Lunch', image:wiki('Chole_bhature.JPG'),
+    ingredients:[['Chickpeas','2 cups, cooked'],['Flour','2 cups, for bhature'],['Yogurt','¼ cup'],['Onion','1, chopped'],['Tomato','2, pureed'],['Garam Masala','1 tsp'],['Ginger','1 tbsp'],['Oil','for frying'],['Salt','to taste']],
+    steps:['Knead flour with yogurt and a little oil into a soft dough; let it rest an hour.','Simmer chickpeas with onion, tomato puree, ginger and garam masala until the gravy thickens.','Roll the dough into ovals and deep-fry until puffed and golden — this is the bhature.','Adjust the chole seasoning and simmer a final 5 minutes.','Serve the hot bhature alongside the chole.']}),
+  indianMeal({ id:'in12', name:'Vegetable Pulao', category:'Dinner', image:wiki('Vegetable_pulao.JPG'),
+    ingredients:[['Rice','2 cups, basmati'],['Mixed Vegetables','2 cups'],['Onion','1, sliced'],['Cumin','1 tsp'],['Bay Leaf','1'],['Cinnamon','1 stick'],['Oil','2 tbsp'],['Mint','a handful']],
+    steps:['Heat oil and sauté whole spices and onion until fragrant.','Add mixed vegetables and cook for a few minutes.','Stir in rinsed rice and water, then bring to a boil.','Cover and simmer on low heat until the rice is fully cooked.','Fluff gently and garnish with fresh mint.']}),
+  indianMeal({ id:'in13', name:'Matar Paneer', category:'Dinner', image:wiki('Matar_paneer.jpg'),
+    ingredients:[['Paneer','200g, cubed'],['Green Peas','1 cup'],['Tomato','2, pureed'],['Onion','1, chopped'],['Ginger','1 tsp'],['Garam Masala','1 tsp'],['Cream','2 tbsp'],['Oil','2 tbsp']],
+    steps:['Sauté onion and ginger in oil until soft, then add tomato puree and garam masala.','Cook until the gravy thickens and the oil separates.','Add green peas and simmer until tender.','Fold in the paneer cubes and a swirl of cream, warming through gently.','Serve with rice or roti.']}),
+  indianMeal({ id:'in14', name:'Bhindi Masala', category:'Lunch', image:wiki('Bhindi_masala.jpg'),
+    ingredients:[['Okra','300g, sliced'],['Onion','1, sliced'],['Tomato','1, chopped'],['Turmeric','½ tsp'],['Red Chili Powder','1 tsp'],['Cumin','1 tsp'],['Oil','3 tbsp'],['Coriander','for garnish']],
+    steps:['Heat oil and sauté cumin seeds, then add sliced okra and cook until lightly browned.','Add onion and cook until softened.','Stir in tomato, turmeric and red chili powder.','Cook uncovered, stirring occasionally, until the okra is tender and no longer sticky.','Garnish with coriander and serve with roti.']}),
+  indianMeal({ id:'in15', name:'Besan Chilla', category:'Breakfast', image:wiki('Besan_chilla.jpg'),
+    ingredients:[['Chickpea Flour (Besan)','1 cup'],['Onion','1, finely chopped'],['Tomato','1, finely chopped'],['Green Chili','1, minced'],['Turmeric','¼ tsp'],['Coriander','chopped, for batter'],['Oil','as needed'],['Salt','to taste']],
+    steps:['Whisk chickpea flour with water, turmeric and salt into a smooth, pourable batter.','Stir in chopped onion, tomato, green chili and coriander.','Heat a griddle, pour a ladle of batter and spread into a thin pancake.','Drizzle with a little oil and cook both sides until golden and set.','Serve hot with mint chutney.']}),
+  indianMeal({ id:'in16', name:'Gajar Halwa', category:'Dessert', image:wiki('Gajar_ka_Halwa.JPG'),
+    ingredients:[['Carrot','1 kg, grated'],['Milk','1 liter'],['Sugar','½ cup'],['Ghee','3 tbsp'],['Cardamom','4 pods'],['Cashews','a handful, for garnish']],
+    steps:['Cook grated carrot with milk on low heat, stirring often, until the milk reduces and is absorbed.','Add sugar and continue cooking until the mixture thickens.','Stir in ghee and cardamom, cooking a few more minutes for a rich finish.','Garnish with toasted cashews.','Serve warm as a comforting dessert.']}),
+  indianMeal({ id:'in17', name:'Poha', category:'Breakfast', image:wiki('Kanda_Poha.JPG'),
+    ingredients:[['Poha (Flattened Rice)','2 cups'],['Onion','1, chopped'],['Potato','1, diced'],['Mustard Seeds','1 tsp'],['Curry Leaves','a few'],['Turmeric','½ tsp'],['Peanuts','2 tbsp'],['Oil','2 tbsp'],['Lemon','1, juiced']],
+    steps:['Rinse poha briefly under water and drain; set aside to soften.','Heat oil and crackle mustard seeds, curry leaves and peanuts.','Add onion and diced potato, cooking until tender.','Stir in turmeric and the softened poha, tossing gently to combine and heat through.','Finish with a squeeze of lemon juice and serve warm.']}),
+  indianMeal({ id:'in18', name:'Upma', category:'Breakfast', image:wiki('Rava_upma.JPG'),
+    ingredients:[['Semolina (Rava)','1 cup'],['Onion','1, chopped'],['Carrot','1, diced'],['Mustard Seeds','1 tsp'],['Curry Leaves','a few'],['Ginger','1 tsp'],['Oil','2 tbsp'],['Lemon','1, juiced']],
+    steps:['Dry-roast semolina in a pan until lightly golden and fragrant; set aside.','Heat oil and crackle mustard seeds and curry leaves, then sauté onion, ginger and carrot.','Add water and bring to a boil.','Slowly stir in the roasted semolina, whisking to avoid lumps, and cook until thick and fluffy.','Finish with a squeeze of lemon juice and serve hot.']}),
+];
+
+async function buildCandidatePool(ingredients, filters) {
+  const fullMeals = new Map();
+  const idOnly = new Set();
+
+  if (filters.cuisine !== 'Any') {
+    const d = await fetchJson(`${MEALDB}/filter.php?a=${encodeURIComponent(filters.cuisine)}`).catch(()=>({meals:null}));
+    (d.meals||[]).forEach(m => idOnly.add(m.idMeal));
+  }
+
+  const catMap = { Breakfast:'Breakfast', Dessert:'Dessert' };
+  if (catMap[filters.mealType]) {
+    const d = await fetchJson(`${MEALDB}/filter.php?c=${catMap[filters.mealType]}`).catch(()=>({meals:null}));
+    (d.meals||[]).forEach(m => idOnly.add(m.idMeal));
+  }
+
+  const ingList = [...ingredients].slice(0,3);
+  await Promise.all(ingList.map(async ing => {
+    const d = await fetchJson(`${MEALDB}/filter.php?i=${encodeURIComponent(ing)}`).catch(()=>({meals:null}));
+    (d.meals||[]).forEach(m => idOnly.add(m.idMeal));
+  }));
+
+  const letters = pickRandomLetters(4);
+  const letterResults = await Promise.all(
+    letters.map(l => fetchJson(`${MEALDB}/search.php?f=${l}`).then(d=>d.meals||[]).catch(()=>[]))
+  );
+  letterResults.flat().forEach(m => fullMeals.set(m.idMeal, m));
+
+  const needLookup = [...idOnly].filter(id => !fullMeals.has(id)).slice(0,24);
+  await Promise.all(needLookup.map(async id => {
+    const d = await fetchJson(`${MEALDB}/lookup.php?i=${id}`).catch(()=>({meals:null}));
+    if (d.meals && d.meals[0]) fullMeals.set(id, d.meals[0]);
+  }));
+
+  // Always merge in the curated Indian dataset — guarantees solid Indian coverage
+  // even if TheMealDB's own Indian listings are thin or unreachable.
+  INDIAN_RECIPES.forEach(m => fullMeals.set(m.idMeal, m));
+
+  if (fullMeals.size < 10) {
+    const extra = await Promise.all(Array.from({length:8}).map(() =>
+      fetchJson(`${MEALDB}/random.php`).then(d=>d.meals && d.meals[0]).catch(()=>null)
+    ));
+    extra.filter(Boolean).forEach(m => fullMeals.set(m.idMeal, m));
+  }
+
+  return [...fullMeals.values()];
+}
+
+function scoreMeal(meal, ingNames, filters, history) {
+  const ingredients = mealIngredients(meal);
+  const instructions = mealInstructions(meal);
+  const diet = classifyDiet(ingredients);
+  const spice = spiceScore(ingredients, instructions);
+  const health = healthScoreOf(ingredients, instructions);
+
+  let score = 0;
+  const lowerSel = ingNames.map(n=>n.toLowerCase());
+  const matched = ingredients.filter(i => lowerSel.some(s => i.name.toLowerCase().includes(s) || s.includes(i.name.toLowerCase())));
+  if (lowerSel.length) score += (matched.length / lowerSel.length) * 40;
+
+  if (filters.cuisine !== 'Any') score += meal.strArea === filters.cuisine ? 15 : 0;
+  if (filters.mealType === 'Breakfast') score += meal.strCategory === 'Breakfast' ? 15 : -5;
+  if (filters.mealType === 'Dessert')   score += meal.strCategory === 'Dessert'   ? 15 : -5;
+
+  const desiredSpice = filters.ageGroup === 'Kids (3-10)' ? Math.min(filters.spiceLevel,2) : filters.spiceLevel;
+  score += (5 - Math.abs(spice - desiredSpice)) * 3;
+  score += (10 - Math.abs(health - filters.health)) * 1.5;
+
+  const likedNames    = history.flatMap(h=>h.liked||[]);
+  const dislikedNames = history.flatMap(h=>h.disliked||[]);
+  if (likedNames.includes(meal.strMeal)) score += 10;
+  if (dislikedNames.includes(meal.strMeal)) score -= 30;
+
+  return { score, diet, spice, health, ingredients, instructions, matched, meal };
+}
+
+function buildWhy(x, filters) {
+  const bits = [];
+  if (x.matched.length) bits.push(`uses the ${x.matched.slice(0,3).map(i=>i.name).join(', ')} you already have`);
+  if (filters.cuisine !== 'Any') bits.push(`brings ${filters.cuisine} flavor`);
+  bits.push(`fits your ${filters.diet.toLowerCase()} preference`);
+  const base = `A ${today()} pick`;
+  return bits.length ? `${base} that ${bits.join(' and ')}.` : `${base} worth trying.`;
+}
+
+function toRecipeShape(x, filters) {
+  const m = x.meal;
+  return {
+    name: m.strMeal,
+    description: `A ${m.strArea} ${m.strCategory.toLowerCase()} favorite, ready in ${guessPrepTime(x.instructions)}.`,
+    cuisine: m.strArea,
+    prepTime: guessPrepTime(x.instructions),
+    servings: 2,
+    image: m.strMealThumb,
+    tags: [x.diet, x.spice>=4 ? '🌶 Spicy' : x.spice<=1 ? 'Mild' : null].filter(Boolean),
+    ingredients: x.ingredients.map(i => `${i.measure ? i.measure+' ' : ''}${i.name}`),
+    instructions: x.instructions,
+    nutritionHighlights: nutritionLine(x.health),
+    whyToday: buildWhy(x, filters),
+  };
+}
+function toGroceryShape(x) {
+  const m = x.meal;
+  return {
+    name: m.strMeal,
+    description: `${m.strArea} ${m.strCategory.toLowerCase()} — just ${x.missing.length} item${x.missing.length===1?'':'s'} away.`,
+    image: m.strMealThumb,
+    missingIngredients: x.missing,
+    prepTime: guessPrepTime(x.instructions),
+  };
+}
+
+async function generateSuggestions(ingredients, filters, history) {
+  const pool = await buildCandidatePool(ingredients, filters);
+  if (!pool.length) throw new Error('Could not reach the recipe service. Check your connection and try again.');
+
+  const ingNames = [...ingredients];
+  let scored = pool.map(meal => scoreMeal(meal, ingNames, filters, history));
+
+  // App is vegetarian/vegan only — always exclude meat, fish and eggs.
+  scored = scored.filter(x => x.diet !== 'Non-Vegetarian');
+  if (filters.diet === 'Vegan') scored = scored.filter(x => x.diet === 'Vegan');
+
+  if (!scored.length) throw new Error('No recipes matched those filters — try loosening cuisine or ingredients.');
+
+  scored.sort((a,b)=>b.score-a.score);
+  const top = scored.slice(0,5);
+  const recipes = top.map(x => toRecipeShape(x, filters));
+
+  const usedIds = new Set(top.map(x=>x.meal.idMeal));
+  const groceryCandidates = scored
+    .filter(x => !usedIds.has(x.meal.idMeal))
+    .map(x => ({ ...x, missing: computeMissing(x.ingredients, ingNames) }))
+    .filter(x => ingNames.length>0 ? (x.missing.length>0 && x.missing.length<=4) : true)
+    .sort((a,b)=> a.missing.length - b.missing.length || b.score - a.score);
+
+  const grocerySuggestions = groceryCandidates.slice(0,3).map(toGroceryShape);
+  return { recipes, grocerySuggestions };
+}
+
+// ─── Shared style tokens ──────────────────────────────────────────────────────
+
+const C = {
+  cream:'#FAFAFA', parchment:'#F5F5F7', bark:'#86868B', sage:'#4FA66B',
+  terra:'#C45C3A', charcoal:'#1D1D1F', stone:'#6E6E73', border:'#E5E5E7',
+  greenBg:'#E9F8EE', orangeBg:'#FFF3EE',
+};
+
+// Consistent type scale used everywhere — bigger and uniform, Apple-style.
+const F = { xs:13, sm:14, base:15, md:16, lg:19, xl:24, xxl:28 };
+
+// ─── Atoms ────────────────────────────────────────────────────────────────────
+
+function Pill({ label, active, onClick, activeBg = C.sage }) {
+  return html`<button onClick=${onClick} style=${{
+    background: active ? activeBg : 'white', color: active ? 'white' : C.charcoal,
+    border: `1px solid ${active ? activeBg : C.border}`, padding: '7px 14px', borderRadius: 99,
+    fontSize: F.sm, fontWeight: active ? 600 : 400, cursor: 'pointer', transition: 'all .12s',
+  }}>${label}</button>`;
+}
+function Tag({ label, bg = C.parchment, color = C.bark }) {
+  return html`<span style=${{ background: bg, color, padding: '3px 9px', borderRadius: 99, fontSize: F.xs, fontWeight: 500 }}>${label}</span>`;
+}
+function Slider({ label, value, onChange, min, max, displayFn }) {
+  const pct = ((value - min) / (max - min)) * 100;
+  return html`<div style=${{ marginBottom: 18 }}>
+    <div style=${{ display:'flex', justifyContent:'space-between', marginBottom: 7 }}>
+      <span style=${{ fontSize: F.sm, fontWeight: 500, color: C.bark }}>${label}</span>
+      <span style=${{ fontSize: F.sm, fontWeight: 600, color: C.sage }}>${displayFn(value)}</span>
+    </div>
+    <input type="range" min=${min} max=${max} value=${value}
+      onInput=${e => onChange(+e.target.value)}
+      style=${{ background: `linear-gradient(to right, ${C.sage} ${pct}%, ${C.border} ${pct}%)` }} />
+  </div>`;
+}
+
+// ─── FilterPanel ─────────────────────────────────────────────────────────────
+
+function FilterPanel({ f, setF }) {
+  const s = key => val => setF(p => ({ ...p, [key]: val }));
+  return html`<div style=${{ background:'white', border:`1px solid ${C.border}`, borderRadius:16, padding:20 }}>
+    <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, marginBottom:18, marginTop:0 }}>Preferences</h3>
+
+    <div style=${{ marginBottom:18 }}>
+      <p style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, marginBottom:9, marginTop:0 }}>Diet</p>
+      <div style=${{ display:'flex', flexWrap:'wrap', gap:7 }}>
+        ${['Vegetarian','Vegan'].map(o => html`<${Pill} key=${o} label=${o} active=${f.diet===o} onClick=${()=>s('diet')(o)} />`)}
+      </div>
+    </div>
+
+    <div style=${{ marginBottom:18 }}>
+      <p style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, marginBottom:9, marginTop:0 }}>Meal Type</p>
+      <div style=${{ display:'flex', flexWrap:'wrap', gap:7 }}>
+        ${MEAL_TYPES.map(o => html`<${Pill} key=${o} label=${o} active=${f.mealType===o} activeBg=${C.bark} onClick=${()=>s('mealType')(o)} />`)}
+      </div>
+    </div>
+
+    <${Slider} label="Spice Level" value=${f.spiceLevel} onChange=${s('spiceLevel')} min=${1} max=${5}  displayFn=${spiceLabel} />
+    <${Slider} label="Healthiness" value=${f.health}     onChange=${s('health')}     min=${1} max=${10} displayFn=${htLabel}    />
+
+    <div style=${{ marginBottom:18 }}>
+      <label style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+        <span>🌍</span> Cuisine
+      </label>
+      <select value=${f.cuisine} onChange=${e => s('cuisine')(e.target.value)}>
+        ${CUISINES.map(o => html`<option key=${o} value=${o}>${o}</option>`)}
+      </select>
+    </div>
+
+    <div>
+      <label style=${{ fontSize:F.sm, fontWeight:500, color:C.bark, display:'flex', alignItems:'center', gap:6, marginBottom:8 }}>
+        <span>👤</span> Age Group
+      </label>
+      <select value=${f.ageGroup} onChange=${e => s('ageGroup')(e.target.value)}>
+        ${AGE_GROUPS.map(o => html`<option key=${o} value=${o}>${o}</option>`)}
+      </select>
+    </div>
+  </div>`;
+}
+
+// ─── IngredientPicker ─────────────────────────────────────────────────────────
+
+function IngredientPicker({ selected, toggle }) {
+  const [open, setOpen] = useState({ 'Produce': true, 'Protein': true });
+  const toggleCat = c => setOpen(o => ({ ...o, [c]: !o[c] }));
+
+  return html`<div style=${{ background:'white', border:`1px solid ${C.border}`, borderRadius:16, padding:20 }}>
+    <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+      <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, margin:0 }}>In Your Kitchen</h3>
+      <span style=${{ background:C.greenBg, color:C.sage, fontSize:F.xs, fontWeight:600, padding:'4px 11px', borderRadius:99 }}>
+        ${selected.size} items
+      </span>
+    </div>
+
+    ${Object.entries(INGREDIENTS).map(([cat, items]) => html`
+      <div key=${cat} style=${{ marginBottom:10 }}>
+        <button onClick=${()=>toggleCat(cat)} style=${{
+          background:'none', border:'none', cursor:'pointer',
+          display:'flex', alignItems:'center', gap:6,
+          fontSize:F.xs, fontWeight:700, color:C.bark,
+          padding:'2px 0', marginBottom:9
+        }}>
+          <span style=${{ display:'inline-block', transition:'transform .15s', transform:open[cat]?'rotate(90deg)':'rotate(0)' }}>▶</span>
+          ${cat}
+        </button>
+        ${open[cat] && html`<div style=${{ display:'flex', flexWrap:'wrap', gap:7, marginBottom:4 }}>
+          ${items.map(item => html`<button key=${item} onClick=${()=>toggle(item)} style=${{
+            background: selected.has(item) ? C.sage : C.cream,
+            color:      selected.has(item) ? 'white' : C.charcoal,
+            border:    `1px solid ${selected.has(item) ? C.sage : C.border}`,
+            padding: '5px 11px', borderRadius:99, fontSize:F.xs,
+            fontWeight: selected.has(item) ? 600 : 400,
+            cursor:'pointer', transition:'all .12s',
+          }}>${item}</button>`)}
+        </div>`}
+      </div>
+    `)}
+  </div>`;
+}
+
+// ─── RecipeCard ───────────────────────────────────────────────────────────────
+
+function RecipeCard({ r, onOpen, bookmarked, onBookmark, fb, onFb }) {
+  const [imgErr, setImgErr] = useState(false);
+  return html`
+    <div class="card" onClick=${()=>onOpen(r)} style=${{
+      background:'white', border:`1px solid ${C.border}`,
+      borderRadius:16, overflow:'hidden', cursor:'pointer',
+      boxShadow:'0 2px 8px rgba(0,0,0,0.04)'
+    }}>
+      <div style=${{ position:'relative', height:180, background:C.parchment, overflow:'hidden' }}>
+        ${!imgErr && r.image
+          ? html`<img src=${r.image} alt=${r.name}
+              onError=${()=>setImgErr(true)}
+              style=${{ width:'100%', height:'100%', objectFit:'cover' }} />`
+          : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:48 }}>🍽️</div>`
+        }
+        <button onClick=${e=>{e.stopPropagation();onBookmark(r.name);}} style=${{
+          position:'absolute', top:10, right:10,
+          background:'rgba(255,255,255,0.92)', border:'none',
+          width:34, height:34, borderRadius:'50%',
+          cursor:'pointer', fontSize:16, display:'flex',
+          alignItems:'center', justifyContent:'center',
+          boxShadow:'0 1px 4px rgba(0,0,0,.15)',
+        }}>${bookmarked ? '🔖' : '🤍'}</button>
+        ${(r.tags||[]).slice(0,2).map((t,i) => html`<span key=${i} style=${{
+          position:'absolute', bottom:8, left: i===0?8:undefined, right: i===1?8:undefined,
+          background:'rgba(255,255,255,0.92)', color:C.sage,
+          padding:'3px 9px', borderRadius:99, fontSize:F.xs, fontWeight:600,
+        }}>${t}</span>`)}
+      </div>
+
+      <div style=${{ padding:16 }}>
+        <div style=${{ display:'flex', justifyContent:'space-between', gap:8, marginBottom:5 }}>
+          <h4 class="font-serif" style=${{ fontSize:F.md, fontWeight:600, color:C.charcoal, margin:0, lineHeight:1.3 }}>${r.name}</h4>
+          <span style=${{ fontSize:F.xs, color:C.bark, whiteSpace:'nowrap', marginTop:2 }}>⏱ ${r.prepTime}</span>
+        </div>
+        <p style=${{ fontSize:F.base, color:C.stone, lineHeight:1.6, margin:'0 0 12px' }}>${r.description}</p>
+
+        ${r.whyToday && html`<p style=${{
+          fontSize:F.xs, fontStyle:'italic', background:C.parchment, color:C.bark,
+          padding:'9px 11px', borderRadius:10, margin:'0 0 12px',
+        }}>✨ ${r.whyToday}</p>`}
+
+        <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between' }}
+          onClick=${e=>e.stopPropagation()}>
+          <div style=${{ display:'flex', gap:5 }}>
+            <button onClick=${()=>onFb(r.name,'up')} style=${{
+              background:fb==='up'?C.sage:C.parchment, color:fb==='up'?'white':C.stone,
+              border:'none', padding:'6px 11px', borderRadius:99, cursor:'pointer', fontSize:F.base,
+            }}>👍</button>
+            <button onClick=${()=>onFb(r.name,'down')} style=${{
+              background:fb==='down'?C.terra:C.parchment, color:fb==='down'?'white':C.stone,
+              border:'none', padding:'6px 11px', borderRadius:99, cursor:'pointer', fontSize:F.base,
+            }}>👎</button>
+          </div>
+          <${Tag} label=${r.cuisine||''} />
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── GroceryCard ──────────────────────────────────────────────────────────────
+
+function GroceryCard({ r, onOpen }) {
+  const [imgErr, setImgErr] = useState(false);
+  return html`
+    <div class="card" onClick=${()=>onOpen(r)} style=${{
+      background:'white', border:`1px solid ${C.border}`, borderRadius:16, overflow:'hidden', cursor:'pointer',
+    }}>
+      <div style=${{ height:140, background:C.parchment, overflow:'hidden' }}>
+        ${!imgErr && r.image
+          ? html`<img src=${r.image} alt=${r.name}
+              onError=${()=>setImgErr(true)}
+              style=${{ width:'100%',height:'100%',objectFit:'cover',opacity:.85 }} />`
+          : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:40 }}>🛒</div>`
+        }
+      </div>
+      <div style=${{ padding:14 }}>
+        <div style=${{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+          <h4 class="font-serif" style=${{ fontSize:F.md, fontWeight:600, color:C.charcoal, margin:0 }}>${r.name}</h4>
+          ${r.prepTime && html`<span style=${{ fontSize:F.xs, color:C.bark }}>⏱ ${r.prepTime}</span>`}
+        </div>
+        <p style=${{ fontSize:F.sm, color:C.stone, margin:'0 0 9px', lineHeight:1.5 }}>${r.description}</p>
+        <div style=${{ display:'flex', flexWrap:'wrap', gap:5 }}>
+          ${(r.missingIngredients||[]).slice(0,3).map((i,idx) => html`<span key=${idx} style=${{
+            background:C.orangeBg, color:C.terra, fontSize:F.xs, fontWeight:600, padding:'3px 9px', borderRadius:99,
+          }}>+ ${i}</span>`)}
+          ${(r.missingIngredients||[]).length > 3 && html`<span style=${{
+            background:C.parchment, color:C.bark, fontSize:F.xs, padding:'3px 9px', borderRadius:99,
+          }}>+${r.missingIngredients.length-3} more</span>`}
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── RecipeModal ──────────────────────────────────────────────────────────────
+
+function RecipeModal({ r, onClose, bookmarked, onBookmark, fb, onFb }) {
+  const [imgErr, setImgErr] = useState(false);
+  if (!r) return null;
+
+  const doShare = () => {
+    const text = `🍽️ ${r.name}\n\n${r.description}\n\nPrep: ${r.prepTime} · ${r.servings} servings\n\nIngredients:\n${(r.ingredients||[]).join('\n')}\n\nInstructions:\n${(r.instructions||[]).map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n${r.nutritionHighlights||''}`;
+    navigator.share ? navigator.share({title:r.name,text}) : navigator.clipboard.writeText(text).then(()=>alert('Recipe copied to clipboard!'));
+  };
+  const doEmail = () => {
+    const sub  = encodeURIComponent(`Recipe: ${r.name}`);
+    const body = encodeURIComponent(`${r.name}\n${r.description}\n\nPrep: ${r.prepTime} | Servings: ${r.servings}\n\nIngredients:\n${(r.ingredients||[]).join('\n')}\n\nInstructions:\n${(r.instructions||[]).map((s,i)=>`${i+1}. ${s}`).join('\n')}\n\n${r.nutritionHighlights||''}`);
+    window.open(`mailto:?subject=${sub}&body=${body}`);
+  };
+
+  const btn = (label, active, activeBg, onClick) => html`<button onClick=${onClick} style=${{
+    background: active ? activeBg : C.parchment,
+    color: active ? 'white' : C.stone,
+    border: 'none', padding: '9px 16px', borderRadius: 99,
+    cursor: 'pointer', fontSize: F.sm, fontWeight: 600,
+  }}>${label}</button>`;
+
+  return html`
+    <div class="modal-bg" onClick=${onClose} style=${{
+      position:'fixed', inset:0, zIndex:50,
+      background:'rgba(0,0,0,0.48)', backdropFilter:'blur(3px)',
+      display:'flex', alignItems:'center', justifyContent:'center', padding:16,
+    }}>
+      <div class="modal-box" onClick=${e=>e.stopPropagation()} style=${{
+        background:'white', borderRadius:24, overflow:'hidden',
+        width:'100%', maxWidth:680,
+        boxShadow:'0 24px 64px rgba(0,0,0,.22)',
+        maxHeight:'90vh', overflowY:'auto',
+      }}>
+        <div style=${{ position:'relative', height:260, background:C.parchment, flexShrink:0 }}>
+          ${!imgErr && r.image
+            ? html`<img src=${r.image} alt=${r.name}
+                onError=${()=>setImgErr(true)}
+                style=${{ width:'100%',height:'100%',objectFit:'cover' }} />`
+            : html`<div style=${{ width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:72 }}>🍽️</div>`
+          }
+          <button onClick=${onClose} style=${{
+            position:'absolute', top:14, left:14,
+            background:'rgba(255,255,255,0.9)', border:'none',
+            width:36, height:36, borderRadius:'50%',
+            cursor:'pointer', fontSize:15, fontWeight:700, color:C.charcoal,
+          }}>✕</button>
+          <div style=${{ position:'absolute', bottom:0, left:0, right:0, padding:20,
+            background:'linear-gradient(to top,rgba(0,0,0,.55),transparent)' }}>
+            <h2 class="font-serif" style=${{ color:'white', fontSize:F.xl, fontWeight:700, margin:'0 0 6px' }}>${r.name}</h2>
+            <div style=${{ display:'flex', gap:14, flexWrap:'wrap' }}>
+              ${r.prepTime && html`<span style=${{ color:'white', fontSize:F.sm, opacity:.9 }}>⏱ ${r.prepTime}</span>`}
+              ${r.servings  && html`<span style=${{ color:'white', fontSize:F.sm, opacity:.9 }}>👤 ${r.servings} servings</span>`}
+              ${r.cuisine   && html`<span style=${{ color:'white', fontSize:F.sm, opacity:.9 }}>🌍 ${r.cuisine}</span>`}
+            </div>
+          </div>
+        </div>
+
+        <div style=${{ padding:24 }}>
+          <p style=${{ fontSize:F.md, color:C.stone, lineHeight:1.7, margin:'0 0 16px' }}>${r.description}</p>
+
+          ${r.whyToday && html`<div style=${{
+            fontSize:F.base, fontStyle:'italic', background:C.parchment, color:C.bark,
+            padding:'13px 16px', borderRadius:12, marginBottom:16
+          }}>✨ ${r.whyToday}</div>`}
+
+          ${r.nutritionHighlights && html`<div style=${{
+            display:'inline-flex', gap:6, alignItems:'center',
+            background:C.greenBg, color:C.sage,
+            fontSize:F.sm, fontWeight:600,
+            padding:'7px 13px', borderRadius:8, marginBottom:20,
+          }}>🥗 ${r.nutritionHighlights}</div>`}
+
+          ${(r.tags||[]).length > 0 && html`<div style=${{ display:'flex', gap:6, flexWrap:'wrap', marginBottom:20 }}>
+            ${r.tags.map((t,i) => html`<${Tag} key=${i} label=${t} />`)}
+          </div>`}
+
+          <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, marginBottom:12 }}>Ingredients</h3>
+          <ul style=${{ margin:'0 0 20px', padding:0, listStyle:'none' }}>
+            ${(r.ingredients||[]).map((ing,i) => html`<li key=${i} style=${{
+              display:'flex', gap:8, fontSize:F.base, color:C.charcoal, marginBottom:7,
+            }}><span style=${{ color:C.sage, marginTop:2, flexShrink:0 }}>•</span>${ing}</li>`)}
+          </ul>
+
+          <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, marginBottom:12 }}>Instructions</h3>
+          <ol style=${{ margin:'0 0 24px', padding:0, listStyle:'none' }}>
+            ${(r.instructions||[]).map((step,i) => html`<li key=${i} style=${{
+              display:'flex', gap:12, fontSize:F.base, color:C.charcoal, marginBottom:16,
+            }}>
+              <span style=${{ background:C.sage, color:'white', width:25, height:25, borderRadius:'50%',
+                display:'flex', alignItems:'center', justifyContent:'center',
+                fontSize:F.xs, fontWeight:700, flexShrink:0, marginTop:1 }}>${i+1}</span>
+              <span style=${{ lineHeight:1.65 }}>${step}</span>
+            </li>`)}
+          </ol>
+
+          <div style=${{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', gap:12,
+            paddingTop:16, borderTop:`1px solid ${C.border}` }}>
+            <div style=${{ display:'flex', gap:8 }}>
+              ${btn('👍 Like', fb==='up', C.sage, ()=>onFb(r.name,'up'))}
+              ${btn('👎 Pass', fb==='down', C.terra, ()=>onFb(r.name,'down'))}
+              ${btn(bookmarked?'🔖 Saved':'🤍 Save', bookmarked, C.bark, ()=>onBookmark(r.name))}
+            </div>
+            <div style=${{ display:'flex', gap:8 }}>
+              ${btn('↗ Share', false, C.bark, doShare)}
+              ${btn('✉ Email', false, C.bark, doEmail)}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+// ─── App ──────────────────────────────────────────────────────────────────────
+
+function App() {
+  const [ingredients, setIngredients] = useState(() => new Set(load('bb_ing',[])));
+  const [filters,     setFilters]     = useState(() => {
+    const f = load('bb_filters',{
+      diet:'Vegetarian', mealType:'Any', spiceLevel:3, health:5, cuisine:'Any', ageGroup:'Any',
+    });
+    // Migrate old saved filters that may still have 'Any' / 'Non-Vegetarian'.
+    if (f.diet !== 'Vegan') f.diet = 'Vegetarian';
+    return f;
+  });
+  const [recipes,     setRecipes]     = useState([]);
+  const [grocery,     setGrocery]     = useState([]);
+  const [loading,     setLoading]     = useState(false);
+  const [error,       setError]       = useState('');
+  const [selected,    setSelected]    = useState(null);
+  const [bookmarks,   setBookmarks]   = useState(() => new Set(load('bb_bookmarks',[])));
+  const [feedback,    setFeedback]    = useState(() => load('bb_feedback',{}));
+  const [history,     setHistory]     = useState(() => load('bb_history',[]));
+  const [tab,         setTab]         = useState('suggest');
+
+  useEffect(() => save('bb_ing',      [...ingredients]),[ingredients]);
+  useEffect(() => save('bb_filters',  filters),       [filters]);
+  useEffect(() => save('bb_bookmarks',[...bookmarks]), [bookmarks]);
+  useEffect(() => save('bb_feedback', feedback),      [feedback]);
+  useEffect(() => save('bb_history',  history),       [history]);
+
+  const toggleIng = useCallback(item => setIngredients(p => {
+    const n = new Set(p); n.has(item) ? n.delete(item) : n.add(item); return n;
+  }), []);
+  const toggleBookmark = useCallback(name => setBookmarks(p => {
+    const n = new Set(p); n.has(name) ? n.delete(name) : n.add(name); return n;
+  }), []);
+  const handleFb = useCallback((name, type) => setFeedback(p => ({
+    ...p, [name]: p[name]===type ? null : type,
+  })), []);
+
+  const generate = async () => {
+    setLoading(true); setError('');
+    try {
+      const liked    = Object.entries(feedback).filter(([,v])=>v==='up').map(([k])=>k);
+      const disliked = Object.entries(feedback).filter(([,v])=>v==='down').map(([k])=>k);
+      const hist     = [...history.slice(-19), { date:today(), liked, disliked }];
+      setHistory(hist);
+      const result = await generateSuggestions(ingredients, filters, hist);
+      setRecipes(result.recipes||[]);
+      setGrocery(result.grocerySuggestions||[]);
+      setTab('suggest');
+    } catch(e) {
+      setError(e.message || 'Something went wrong fetching recipes. Try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const allRecipes = [...recipes, ...grocery];
+  const savedList  = [...bookmarks].map(n => allRecipes.find(r=>r.name===n)).filter(Boolean);
+
+  const headerBtn = (active, label, onClick) => html`<button onClick=${onClick} style=${{
+    background: active ? C.sage : 'transparent',
+    color: active ? 'white' : C.bark,
+    border: 'none', padding: '7px 18px', borderRadius: 99,
+    cursor: 'pointer', fontSize: F.sm, fontWeight: 500, transition: 'all .12s',
+  }}>${label}</button>`;
+
+  return html`<div style=${{ minHeight:'100vh', background:C.cream }}>
+
+    <header style=${{ background:'white', borderBottom:`1px solid ${C.border}`,
+      position:'sticky', top:0, zIndex:40 }}>
+      <div style=${{ maxWidth:1200, margin:'0 auto', padding:'16px 20px',
+        display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12 }}>
+        <div>
+          <h1 class="font-serif" style=${{ fontSize:F.xxl, fontWeight:700, color:C.charcoal, margin:'0 0 3px' }}>
+            Bite<span style=${{ color:C.sage }}>Builder</span>
+          </h1>
+          <p style=${{ fontSize:F.sm, color:C.bark, margin:0 }}>${today()} · personalized meal ideas · free recipe data, no API key</p>
+        </div>
+        <div style=${{ background:C.parchment, borderRadius:99, padding:4, display:'flex', gap:4 }}>
+          ${headerBtn(tab==='suggest', '🍽️ Suggestions', ()=>setTab('suggest'))}
+          ${headerBtn(tab==='saved',   `🔖 Saved${bookmarks.size?` (${bookmarks.size})`:''}`, ()=>setTab('saved'))}
+        </div>
+      </div>
+    </header>
+
+    <div style=${{ maxWidth:1200, margin:'0 auto', padding:'24px 20px' }}>
+
+      ${tab==='suggest' && html`
+        <div class="layout" style=${{ display:'grid', gridTemplateColumns:'290px 1fr', gap:24, alignItems:'start' }}>
+
+          <div class="sidebar" style=${{ position:'sticky', top:86, maxHeight:'calc(100vh - 106px)', overflowY:'auto', paddingRight:4 }}>
+            <div style=${{ display:'flex', flexDirection:'column', gap:16 }}>
+              <${FilterPanel} f=${filters} setF=${setFilters} />
+              <${IngredientPicker} selected=${ingredients} toggle=${toggleIng} />
+              <button class=${loading ? '' : 'cta-btn'} onClick=${generate} disabled=${loading} style=${{
+                background: loading ? '#C7C7CC' : undefined,
+                color: 'white', border: 'none',
+                width: '100%', padding: '16px', borderRadius: 16,
+                fontSize: F.md, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer',
+                boxShadow: loading ? 'none' : '0 6px 16px rgba(62,151,96,.35)',
+                letterSpacing: '0.01em',
+              }}>
+                ${loading
+                  ? html`<span style=${{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                      <span class="spin">⟳</span> Finding recipes…
+                    </span>`
+                  : html`<span style=${{ display:'flex', alignItems:'center', justifyContent:'center', gap:9 }}>
+                      <span style=${{ fontSize:18 }}>👨‍🍳</span> Suggest Meals
+                    </span>`
+                }
+              </button>
+            </div>
+          </div>
+
+          <div>
+            ${error && html`<div style=${{
+              background:C.orangeBg, color:C.terra,
+              border:`1px solid #F5D5C8`, borderRadius:12,
+              padding:'13px 16px', fontSize:F.base, marginBottom:16,
+            }}>⚠ ${error}</div>`}
+
+            ${!loading && recipes.length===0 && !error && html`
+              <div style=${{ textAlign:'center', paddingTop:100, paddingBottom:100 }}>
+                <div style=${{ fontSize:64, marginBottom:16 }}>🥘</div>
+                <h3 class="font-serif" style=${{ fontSize:F.xl, fontWeight:700, color:C.charcoal, marginBottom:9 }}>
+                  What shall we cook today?
+                </h3>
+                <p style=${{ fontSize:F.md, color:C.bark, maxWidth:340, margin:'0 auto' }}>
+                  Pick ingredients and preferences, then tap <strong>Suggest Meals</strong>.
+                </p>
+              </div>`}
+
+            ${loading && html`
+              <div style=${{ textAlign:'center', paddingTop:100, paddingBottom:100 }}>
+                <div class="bounce" style=${{ fontSize:64, marginBottom:16 }}>👨‍🍳</div>
+                <p class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal }}>
+                  Searching real recipes for ${today()}…
+                </p>
+                <p style=${{ fontSize:F.base, color:C.bark, marginTop:8 }}>
+                  Matching your preferences and history
+                </p>
+              </div>`}
+
+            ${!loading && recipes.length>0 && html`
+              <div>
+                <div style=${{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16 }}>
+                  <h2 class="font-serif" style=${{ fontSize:F.xl, fontWeight:700, color:C.charcoal, margin:0 }}>Today's Picks</h2>
+                  <span style=${{ fontSize:F.sm, color:C.bark }}>${recipes.length} recipes</span>
+                </div>
+                <div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:16, marginBottom:48 }}>
+                  ${recipes.map(r => html`<${RecipeCard} key=${r.name} r=${r} onOpen=${setSelected}
+                    bookmarked=${bookmarks.has(r.name)} onBookmark=${toggleBookmark}
+                    fb=${feedback[r.name]} onFb=${handleFb} />`)}
+                </div>
+
+                ${grocery.length>0 && html`
+                  <div>
+                    <div style=${{ display:'flex', alignItems:'center', gap:16, marginBottom:16 }}>
+                      <div style=${{ flex:1, height:1, background:C.border }}></div>
+                      <div style=${{ display:'flex', alignItems:'center', gap:8,
+                        background:'white', border:`1px solid ${C.border}`,
+                        padding:'9px 18px', borderRadius:99 }}>
+                        <span>🛒</span>
+                        <span class="font-serif" style=${{ fontSize:F.md, fontWeight:600, color:C.charcoal }}>
+                          With a quick grocery run
+                        </span>
+                      </div>
+                      <div style=${{ flex:1, height:1, background:C.border }}></div>
+                    </div>
+                    <p style=${{ textAlign:'center', fontSize:F.sm, color:C.bark, marginBottom:16 }}>
+                      These are just a few ingredients away
+                    </p>
+                    <div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))', gap:16 }}>
+                      ${grocery.map(r => html`<${GroceryCard} key=${r.name} r=${r} onOpen=${setSelected} />`)}
+                    </div>
+                  </div>`}
+              </div>`}
+          </div>
+        </div>`}
+
+      ${tab==='saved' && html`
+        <div>
+          <h2 class="font-serif" style=${{ fontSize:F.xl, fontWeight:700, color:C.charcoal, marginBottom:20 }}>Saved Recipes</h2>
+          ${savedList.length===0
+            ? html`<div style=${{ textAlign:'center', paddingTop:100, paddingBottom:100 }}>
+                <div style=${{ fontSize:64, marginBottom:16 }}>🔖</div>
+                <h3 class="font-serif" style=${{ fontSize:F.xl, fontWeight:700, color:C.charcoal, marginBottom:9 }}>No saved recipes yet</h3>
+                <p style=${{ fontSize:F.md, color:C.bark }}>Tap 🤍 on any recipe card to save it here.</p>
+              </div>`
+            : html`<div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))', gap:16 }}>
+                ${savedList.map(r => html`<${RecipeCard} key=${r.name} r=${r} onOpen=${setSelected}
+                  bookmarked onBookmark=${toggleBookmark}
+                  fb=${feedback[r.name]} onFb=${handleFb} />`)}
+              </div>`}
+        </div>`}
+    </div>
+
+    ${selected && html`<${RecipeModal} r=${selected} onClose=${()=>setSelected(null)}
+      bookmarked=${bookmarks.has(selected.name)} onBookmark=${toggleBookmark}
+      fb=${feedback[selected.name]} onFb=${handleFb} />`}
+  </div>`;
+}
+
+createRoot(document.getElementById('root')).render(html`<${App} />`);
+</script>
+</body>
+</html>
