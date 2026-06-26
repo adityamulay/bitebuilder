@@ -272,9 +272,13 @@ async function buildCandidatePool(ingredients, filters) {
     if (d.meals && d.meals[0]) fullMeals.set(id, d.meals[0]);
   }));
 
-  // Always merge in the curated Indian dataset — guarantees solid Indian coverage
-  // even if TheMealDB's own Indian listings are thin or unreachable.
-  INDIAN_RECIPES.forEach(m => fullMeals.set(m.idMeal, m));
+  // Merge in the curated Indian dataset — guarantees solid Indian coverage even
+  // if TheMealDB's own Indian listings are thin or unreachable. Only included
+  // when the user hasn't picked a specific *other* cuisine, so e.g. filtering
+  // by Italian doesn't get diluted with Indian dishes.
+  if (filters.cuisine === 'Any' || filters.cuisine === 'Indian') {
+    INDIAN_RECIPES.forEach(m => fullMeals.set(m.idMeal, m));
+  }
 
   if (fullMeals.size < 10) {
     const extra = await Promise.all(Array.from({length:8}).map(() =>
@@ -283,7 +287,17 @@ async function buildCandidatePool(ingredients, filters) {
     extra.filter(Boolean).forEach(m => fullMeals.set(m.idMeal, m));
   }
 
-  return [...fullMeals.values()];
+  let pool = [...fullMeals.values()];
+
+  // When a specific cuisine is selected, prefer an exact-match pool. Only fall
+  // back to the broader (mixed-cuisine) pool if too few matches exist, so the
+  // suggestions still favor the chosen cuisine via the scoring penalty below.
+  if (filters.cuisine !== 'Any') {
+    const exact = pool.filter(m => m.strArea === filters.cuisine);
+    if (exact.length >= 5) pool = exact;
+  }
+
+  return pool;
 }
 
 function scoreMeal(meal, ingNames, filters, history) {
@@ -298,7 +312,7 @@ function scoreMeal(meal, ingNames, filters, history) {
   const matched = ingredients.filter(i => lowerSel.some(s => i.name.toLowerCase().includes(s) || s.includes(i.name.toLowerCase())));
   if (lowerSel.length) score += (matched.length / lowerSel.length) * 40;
 
-  if (filters.cuisine !== 'Any') score += meal.strArea === filters.cuisine ? 15 : 0;
+  if (filters.cuisine !== 'Any') score += meal.strArea === filters.cuisine ? 20 : -25;
   if (filters.mealType === 'Breakfast') score += meal.strCategory === 'Breakfast' ? 15 : -5;
   if (filters.mealType === 'Dessert')   score += meal.strCategory === 'Dessert'   ? 15 : -5;
 
