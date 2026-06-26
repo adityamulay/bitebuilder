@@ -76,12 +76,16 @@ const html = htm.bind((await import('https://esm.sh/react@18')).default.createEl
 // ─── Constants ──────────────────────────────────────────────────────────────
 
 const INGREDIENTS = {
-  'Produce':  ['Onion','Garlic','Tomato','Potato','Spinach','Bell Pepper','Carrot','Cucumber','Lemon','Ginger','Mushroom','Zucchini','Broccoli','Eggplant','Sweet Potato','Kale'],
+  'Produce':  ['Onion','Garlic','Tomato','Potato','Spinach','Bell Pepper','Carrot','Cucumber','Lemon','Ginger','Mushroom','Zucchini','Broccoli','Eggplant','Sweet Potato','Kale','Okra (Bhindi)','Cauliflower','Cabbage','Green Peas','Corn','Avocado','Green Beans','Cilantro / Coriander'],
   'Protein':  ['Tofu','Lentils','Chickpeas','Paneer','Black Beans','Kidney Beans','Mixed Beans'],
   'Grains':   ['Rice','Pasta','Bread','Oats','Quinoa','Noodles','Tortillas','Couscous','Poha (Flattened Rice)','Semolina (Rava)'],
   'Dairy':    ['Milk','Butter','Yogurt','Cheese','Cream','Sour Cream','Ghee'],
   'Pantry':   ['Olive Oil','Salt','Sugar','Flour','Soy Sauce','Vinegar','Honey','Tomato Sauce','Coconut Milk','Broth / Stock','Canned Tomatoes'],
 };
+// Reverse lookup so toggling any one item can mark its whole category as
+// "touched" (see touchedCats in App / the "assume fully stocked" default below).
+const CATEGORY_OF_ITEM = {};
+Object.entries(INGREDIENTS).forEach(([cat, items]) => items.forEach(i => { CATEGORY_OF_ITEM[i] = cat; }));
 // Spices are assumed to always be on hand, so they're left out of the picker
 // and out of ingredient-matching — they're still detected from recipe text
 // for spice-level scoring (see SPICY_WORDS) but never required or "missing."
@@ -328,10 +332,23 @@ function scoreMeal(meal, ingNames, filters) {
   const spice = spiceScore(ingredients, instructions);
   const health = healthScoreOf(ingredients, instructions);
 
+  const missing = computeMissing(ingredients, ingNames);
+  const nonStaple = ingredients.filter(i => !STAPLES.some(s => i.name.toLowerCase().includes(s)));
+  const coverage = nonStaple.length ? (nonStaple.length - missing.length) / nonStaple.length : 1;
+
   let score = 0;
   const lowerSel = ingNames.map(n=>n.toLowerCase());
   const matched = ingredients.filter(i => lowerSel.some(s => i.name.toLowerCase().includes(s) || s.includes(i.name.toLowerCase())));
-  if (lowerSel.length) score += (matched.length / lowerSel.length) * 40;
+  if (lowerSel.length) {
+    // Reward using what's selected, but weighted more heavily by how much of the
+    // *recipe's* own ingredient list is actually covered — otherwise a dish that
+    // needs several ingredients the user doesn't have (e.g. an uncommon vegetable)
+    // could still rank #1 just because the few items it shares are a big fraction
+    // of a short selected list.
+    score += (matched.length / lowerSel.length) * 15;
+    score += coverage * 30;
+    score -= missing.length * 3;
+  }
 
   if (filters.cuisine !== 'Any') score += meal.strArea === filters.cuisine ? 20 : -25;
   if (filters.mealType === 'Breakfast') score += meal.strCategory === 'Breakfast' ? 15 : -5;
@@ -341,7 +358,7 @@ function scoreMeal(meal, ingNames, filters) {
   score += (5 - Math.abs(spice - desiredSpice)) * 3;
   score += (10 - Math.abs(health - filters.health)) * 1.5;
 
-  return { score, diet, spice, health, ingredients, instructions, matched, meal };
+  return { score, diet, spice, health, ingredients, instructions, matched, missing, meal };
 }
 
 function buildWhy(x, filters) {
@@ -406,7 +423,6 @@ async function generateSuggestions(ingredients, filters) {
   const usedIds = new Set(top.map(x=>x.meal.idMeal));
   const groceryCandidates = scored
     .filter(x => !usedIds.has(x.meal.idMeal))
-    .map(x => ({ ...x, missing: computeMissing(x.ingredients, ingNames) }))
     .filter(x => ingNames.length>0 ? (x.missing.length>0 && x.missing.length<=4) : true)
     .sort((a,b)=> a.missing.length - b.missing.length || b.score - a.score);
 
@@ -524,17 +540,20 @@ function FilterPanel({ f, setF }) {
 
 // ─── IngredientPicker ─────────────────────────────────────────────────────────
 
-function IngredientPicker({ selected, toggle }) {
+function IngredientPicker({ selected, toggle, touchedCats, onTouch }) {
   const [open, setOpen] = useState({ 'Produce': true, 'Protein': true });
   const toggleCat = c => setOpen(o => ({ ...o, [c]: !o[c] }));
 
   return html`<div style=${{ background:'white', border:`1px solid ${C.border}`, borderRadius:16, padding:20 }}>
-    <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:18 }}>
+    <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
       <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, margin:0 }}>In Your Kitchen</h3>
       <span style=${{ background:C.greenBg, color:C.sage, fontSize:F.xs, fontWeight:600, padding:'4px 11px', borderRadius:99 }}>
         ${selected.size} items
       </span>
     </div>
+    <p style=${{ fontSize:F.xs, color:C.bark, margin:'0 0 16px', lineHeight:1.5 }}>
+      Sections you haven't touched are assumed fully stocked — tap "None Available" on a section if you're out of everything in it.
+    </p>
 
     ${Object.entries(INGREDIENTS).map(([cat, items]) => html`
       <div key=${cat} style=${{ marginBottom:10 }}>
@@ -548,18 +567,28 @@ function IngredientPicker({ selected, toggle }) {
           ${cat}
         </button>
         ${open[cat] && html`<div style=${{ display:'flex', flexWrap:'wrap', gap:7, marginBottom:4 }}>
-          ${cat==='Dairy' && (() => {
-            const allSelected = items.every(i => selected.has(i));
-            return html`<button key="__all_dairy" onClick=${() => items.forEach(i => {
-              if (allSelected) { if (selected.has(i)) toggle(i); }
-              else { if (!selected.has(i)) toggle(i); }
-            })} style=${{
-              background: allSelected ? C.sage : 'white',
-              color:      allSelected ? 'white' : C.sage,
-              border:    `1px dashed ${C.sage}`,
-              padding: '5px 11px', borderRadius:99, fontSize:F.xs,
-              fontWeight:600, cursor:'pointer', transition:'all .12s',
-            }}>${allSelected ? '✓ ' : ''}All / Any</button>`;
+          ${(() => {
+            const touched      = touchedCats.has(cat);
+            const allSelected  = !touched || items.every(i => selected.has(i));
+            const noneSelected = touched && items.every(i => !selected.has(i));
+            const selectAll  = () => { onTouch(cat); items.forEach(i => { if (!selected.has(i)) toggle(i); }); };
+            const selectNone = () => { onTouch(cat); items.forEach(i => { if (selected.has(i)) toggle(i); }); };
+            return [
+              html`<button key="__all" onClick=${selectAll} style=${{
+                background: allSelected ? C.sage : 'white',
+                color:      allSelected ? 'white' : C.sage,
+                border:    `1px dashed ${C.sage}`,
+                padding: '5px 11px', borderRadius:99, fontSize:F.xs,
+                fontWeight:600, cursor:'pointer', transition:'all .12s',
+              }}>${allSelected ? '✓ ' : ''}All Available</button>`,
+              html`<button key="__none" onClick=${selectNone} style=${{
+                background: noneSelected ? C.bark : 'white',
+                color:      noneSelected ? 'white' : C.bark,
+                border:    `1px dashed ${C.bark}`,
+                padding: '5px 11px', borderRadius:99, fontSize:F.xs,
+                fontWeight:600, cursor:'pointer', transition:'all .12s',
+              }}>${noneSelected ? '✓ ' : ''}None Available</button>`,
+            ];
           })()}
           ${items.map(item => html`<button key=${item} onClick=${()=>toggle(item)} style=${{
             background: selected.has(item) ? C.sage : C.cream,
@@ -819,23 +848,44 @@ function App() {
   const [error,       setError]       = useState('');
   const [selected,    setSelected]    = useState(null);
   const [bookmarks,   setBookmarks]   = useState(() => new Set(load('bb_bookmarks',[])));
+  const [touchedCats, setTouchedCats] = useState(() => new Set(load('bb_touched_cats',[])));
   const [tab,         setTab]         = useState('suggest');
 
   useEffect(() => save('bb_ing',      [...ingredients]),[ingredients]);
   useEffect(() => save('bb_filters',  filters),       [filters]);
   useEffect(() => save('bb_bookmarks',[...bookmarks]), [bookmarks]);
+  useEffect(() => save('bb_touched_cats',[...touchedCats]), [touchedCats]);
 
-  const toggleIng = useCallback(item => setIngredients(p => {
-    const n = new Set(p); n.has(item) ? n.delete(item) : n.add(item); return n;
-  }), []);
+  const markTouched = useCallback(cat => setTouchedCats(p => p.has(cat) ? p : new Set(p).add(cat)), []);
+  const toggleIng = useCallback(item => {
+    const cat = CATEGORY_OF_ITEM[item];
+    if (cat) markTouched(cat);
+    setIngredients(p => {
+      const n = new Set(p); n.has(item) ? n.delete(item) : n.add(item); return n;
+    });
+  }, [markTouched]);
   const toggleBookmark = useCallback(name => setBookmarks(p => {
     const n = new Set(p); n.has(name) ? n.delete(name) : n.add(name); return n;
   }), []);
 
+  // Sections the user hasn't touched at all are assumed fully stocked, so
+  // they don't drag down suggestions just because nobody filled them in.
+  const effectiveIngredients = (() => {
+    const eff = new Set();
+    Object.entries(INGREDIENTS).forEach(([cat, items]) => {
+      if (touchedCats.has(cat)) {
+        items.forEach(i => { if (ingredients.has(i)) eff.add(i); });
+      } else {
+        items.forEach(i => eff.add(i));
+      }
+    });
+    return eff;
+  })();
+
   const generate = async () => {
     setLoading(true); setError('');
     try {
-      const result = await generateSuggestions(ingredients, filters);
+      const result = await generateSuggestions(effectiveIngredients, filters);
       setRecipes(result.recipes||[]);
       setGrocery(result.grocerySuggestions||[]);
       setTab('suggest');
@@ -883,7 +933,8 @@ function App() {
           <div class="sidebar" style=${{ position:'sticky', top:86, maxHeight:'calc(100vh - 106px)', overflowY:'auto', paddingRight:4 }}>
             <div style=${{ display:'flex', flexDirection:'column', gap:16 }}>
               <${FilterPanel} f=${filters} setF=${setFilters} />
-              <${IngredientPicker} selected=${ingredients} toggle=${toggleIng} />
+              <${IngredientPicker} selected=${ingredients} toggle=${toggleIng}
+                touchedCats=${touchedCats} onTouch=${markTouched} />
               <button class=${loading ? '' : 'cta-btn'} onClick=${generate} disabled=${loading} style=${{
                 background: loading ? '#C7C7CC' : undefined,
                 color: 'white', border: 'none',
