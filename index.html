@@ -443,7 +443,7 @@ const F = { xs:13, sm:14, base:15, md:16, lg:19, xl:24, xxl:28 };
 
 // ─── Atoms ────────────────────────────────────────────────────────────────────
 
-function Pill({ label, active, onClick, activeBg = C.sage }) {
+function Pill({ label, active, onClick, activeBg = C.charcoal }) {
   return html`<button onClick=${onClick} style=${{
     background: active ? activeBg : 'white', color: active ? 'white' : C.charcoal,
     border: `1px solid ${active ? activeBg : C.border}`, padding: '7px 14px', borderRadius: 99,
@@ -458,11 +458,11 @@ function Slider({ label, value, onChange, min, max, displayFn }) {
   return html`<div style=${{ marginBottom: 18 }}>
     <div style=${{ display:'flex', justifyContent:'space-between', marginBottom: 7 }}>
       <span style=${{ fontSize: F.sm, fontWeight: 500, color: C.bark }}>${label}</span>
-      <span style=${{ fontSize: F.sm, fontWeight: 600, color: C.sage }}>${displayFn(value)}</span>
+      <span style=${{ fontSize: F.sm, fontWeight: 700, color: C.charcoal }}>${displayFn(value)}</span>
     </div>
     <input type="range" min=${min} max=${max} value=${value}
       onInput=${e => onChange(+e.target.value)}
-      style=${{ background: `linear-gradient(to right, ${C.sage} ${pct}%, ${C.border} ${pct}%)` }} />
+      style=${{ background: `linear-gradient(to right, ${C.charcoal} ${pct}%, ${C.border} ${pct}%)` }} />
   </div>`;
 }
 
@@ -482,9 +482,9 @@ function Dropdown({ label, icon, value, options, onChange, last }) {
     </label>
     <button type="button" onClick=${()=>setOpen(o=>!o)} style=${{
       width:'100%', display:'flex', alignItems:'center', justifyContent:'space-between',
-      background:'#FBFBFD', border:`1px solid ${open ? C.sage : C.border}`, borderRadius:12,
+      background:'#FBFBFD', border:`1px solid ${open ? C.charcoal : C.border}`, borderRadius:12,
       padding:'11px 14px', fontSize:F.base, fontWeight:500, color:C.charcoal, cursor:'pointer',
-      boxShadow: open ? `0 0 0 3px ${C.sage}26` : 'none', transition:'border-color .15s, box-shadow .15s',
+      boxShadow: open ? `0 0 0 3px ${C.charcoal}1A` : 'none', transition:'border-color .15s, box-shadow .15s',
     }}>
       <span>${value}</span>
       <span style=${{ display:'inline-block', fontSize:10, color:C.bark, transform: open?'rotate(180deg)':'rotate(0)', transition:'transform .15s' }}>▼</span>
@@ -498,7 +498,7 @@ function Dropdown({ label, icon, value, options, onChange, last }) {
         onClick=${()=>{ onChange(o); setOpen(false); }}
         style=${{
           width:'100%', textAlign:'left', display:'flex', alignItems:'center', justifyContent:'space-between',
-          background: o===value ? C.greenBg : 'transparent', color: o===value ? C.sage : C.charcoal,
+          background: o===value ? C.parchment : 'transparent', color: C.charcoal,
           border:'none', borderRadius:9, padding:'9px 11px', fontSize:F.base,
           fontWeight: o===value ? 600 : 400, cursor:'pointer', marginBottom:2,
         }}>
@@ -541,66 +541,59 @@ function FilterPanel({ f, setF }) {
 // ─── IngredientPicker ─────────────────────────────────────────────────────────
 
 function IngredientPicker({ selected, toggle, touchedCats, onTouch }) {
-  const [open, setOpen] = useState({ 'Produce': true, 'Protein': true });
-  const toggleCat = c => setOpen(o => ({ ...o, [c]: !o[c] }));
-
-  return html`<div style=${{ background:'white', border:`1px solid ${C.border}`, borderRadius:16, padding:20 }}>
-    <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+  return html`<div style=${{ background:'white', border:`1px solid ${C.border}`, borderRadius:16, padding:'16px 20px 4px' }}>
+    <div style=${{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:8 }}>
       <h3 class="font-serif" style=${{ fontSize:F.lg, fontWeight:700, color:C.charcoal, margin:0 }}>In Your Kitchen</h3>
-      <span style=${{ background:C.greenBg, color:C.sage, fontSize:F.xs, fontWeight:600, padding:'4px 11px', borderRadius:99 }}>
+      <span style=${{ background:C.parchment, color:C.charcoal, fontSize:F.xs, fontWeight:700, padding:'4px 11px', borderRadius:99 }}>
         ${selected.size} items
       </span>
     </div>
-    <p style=${{ fontSize:F.xs, color:C.bark, margin:'0 0 16px', lineHeight:1.5 }}>
-      Sections you haven't touched are assumed fully stocked — tap "None Available" on a section if you're out of everything in it.
+    <p style=${{ fontSize:F.xs, color:C.bark, margin:'0 0 6px', lineHeight:1.45 }}>
+      Untouched sections are assumed fully stocked.
     </p>
 
-    ${Object.entries(INGREDIENTS).map(([cat, items]) => html`
-      <div key=${cat} style=${{ marginBottom:10 }}>
-        <button onClick=${()=>toggleCat(cat)} style=${{
-          background:'none', border:'none', cursor:'pointer',
-          display:'flex', alignItems:'center', gap:6,
-          fontSize:F.xs, fontWeight:700, color:C.bark,
-          padding:'2px 0', marginBottom:9
-        }}>
-          <span style=${{ display:'inline-block', transition:'transform .15s', transform:open[cat]?'rotate(90deg)':'rotate(0)' }}>▶</span>
-          ${cat}
-        </button>
-        ${open[cat] && html`<div style=${{ display:'flex', flexWrap:'wrap', gap:7, marginBottom:4 }}>
-          ${(() => {
-            const touched      = touchedCats.has(cat);
-            const allSelected  = !touched || items.every(i => selected.has(i));
-            const noneSelected = touched && items.every(i => !selected.has(i));
-            const selectAll  = () => { onTouch(cat); items.forEach(i => { if (!selected.has(i)) toggle(i); }); };
-            const selectNone = () => { onTouch(cat); items.forEach(i => { if (selected.has(i)) toggle(i); }); };
-            return [
-              html`<button key="__all" onClick=${selectAll} style=${{
-                background: allSelected ? C.sage : 'white',
-                color:      allSelected ? 'white' : C.sage,
-                border:    `1px dashed ${C.sage}`,
-                padding: '5px 11px', borderRadius:99, fontSize:F.xs,
-                fontWeight:600, cursor:'pointer', transition:'all .12s',
-              }}>${allSelected ? '✓ ' : ''}All Available</button>`,
-              html`<button key="__none" onClick=${selectNone} style=${{
-                background: noneSelected ? C.bark : 'white',
-                color:      noneSelected ? 'white' : C.bark,
-                border:    `1px dashed ${C.bark}`,
-                padding: '5px 11px', borderRadius:99, fontSize:F.xs,
-                fontWeight:600, cursor:'pointer', transition:'all .12s',
-              }}>${noneSelected ? '✓ ' : ''}None Available</button>`,
-            ];
-          })()}
+    ${Object.entries(INGREDIENTS).map(([cat, items]) => {
+      const touched   = touchedCats.has(cat);
+      const selCount  = items.filter(i => selected.has(i)).length;
+      const isAll     = !touched || selCount === items.length;
+      const isNone    = touched && selCount === 0;
+      const statusLabel = isNone ? 'None available' : isAll ? 'All available' : `${selCount} of ${items.length} available`;
+      const statusColor = isNone ? C.terra : isAll ? C.sage : C.bark;
+      const selectAll  = () => { onTouch(cat); items.forEach(i => { if (!selected.has(i)) toggle(i); }); };
+      const selectNone = () => { onTouch(cat); items.forEach(i => { if (selected.has(i)) toggle(i); }); };
+
+      return html`<div key=${cat} style=${{ borderTop:`1px solid ${C.border}`, padding:'12px 0' }}>
+        <div style=${{ display:'flex', alignItems:'baseline', justifyContent:'space-between', gap:8, marginBottom:9 }}>
+          <span style=${{ fontSize:F.sm, fontWeight:700, color:C.charcoal }}>${cat}</span>
+          <span style=${{ fontSize:F.xs, fontWeight:600, color:statusColor }}>${statusLabel}</span>
+        </div>
+
+        <div style=${{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:0, border:`1px solid ${C.border}`, borderRadius:10, overflow:'hidden', marginBottom:9 }}>
+          <button onClick=${selectAll} style=${{
+            background: isAll ? C.sage : 'white', color: isAll ? 'white' : C.bark,
+            border:'none', borderRight:`1px solid ${C.border}`, padding:'7px 0',
+            fontSize:F.xs, fontWeight:700, cursor:'pointer', transition:'all .12s',
+          }}>All Available</button>
+          <button onClick=${selectNone} style=${{
+            background: isNone ? C.terra : 'white', color: isNone ? 'white' : C.bark,
+            border:'none', padding:'7px 0',
+            fontSize:F.xs, fontWeight:700, cursor:'pointer', transition:'all .12s',
+          }}>None Available</button>
+        </div>
+
+        <div style=${{ display:'grid', gridTemplateColumns:'repeat(auto-fill, minmax(108px, 1fr))', gap:6 }}>
           ${items.map(item => html`<button key=${item} onClick=${()=>toggle(item)} style=${{
             background: selected.has(item) ? C.sage : C.cream,
             color:      selected.has(item) ? 'white' : C.charcoal,
             border:    `1px solid ${selected.has(item) ? C.sage : C.border}`,
-            padding: '5px 11px', borderRadius:99, fontSize:F.xs,
+            padding: '6px 8px', borderRadius:8, fontSize:F.xs,
             fontWeight: selected.has(item) ? 600 : 400,
             cursor:'pointer', transition:'all .12s',
+            textAlign:'center', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap',
           }}>${item}</button>`)}
-        </div>`}
-      </div>
-    `)}
+        </div>
+      </div>`;
+    })}
   </div>`;
 }
 
@@ -651,8 +644,8 @@ function RecipeCard({ r, onOpen, bookmarked, onBookmark }) {
         }}>${bookmarked ? '🔖' : '🤍'}</button>
         ${(r.tags||[]).slice(0,2).map((t,i) => html`<span key=${i} style=${{
           position:'absolute', bottom:8, left: i===0?8:undefined, right: i===1?8:undefined,
-          background:'rgba(255,255,255,0.92)', color:C.sage,
-          padding:'3px 9px', borderRadius:99, fontSize:F.xs, fontWeight:600,
+          background:'rgba(255,255,255,0.92)', color:C.charcoal,
+          padding:'3px 9px', borderRadius:99, fontSize:F.xs, fontWeight:700,
         }}>${t}</span>`)}
       </div>
 
@@ -702,7 +695,7 @@ function GroceryCard({ r, onOpen }) {
         <p style=${{ fontSize:F.sm, color:C.stone, margin:'0 0 9px', lineHeight:1.5 }}>${r.description}</p>
         <div style=${{ display:'flex', flexWrap:'wrap', gap:5 }}>
           ${(r.missingIngredients||[]).slice(0,3).map((i,idx) => html`<span key=${idx} style=${{
-            background:C.orangeBg, color:C.terra, fontSize:F.xs, fontWeight:600, padding:'3px 9px', borderRadius:99,
+            background:C.charcoal, color:'white', fontSize:F.xs, fontWeight:700, padding:'3px 9px', borderRadius:99,
           }}>+ ${i}</span>`)}
           ${(r.missingIngredients||[]).length > 3 && html`<span style=${{
             background:C.parchment, color:C.bark, fontSize:F.xs, padding:'3px 9px', borderRadius:99,
@@ -775,8 +768,8 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
 
           ${r.nutritionHighlights && html`<div style=${{
             display:'inline-flex', gap:6, alignItems:'center',
-            background:C.greenBg, color:C.sage,
-            fontSize:F.sm, fontWeight:600,
+            background:C.parchment, color:C.charcoal,
+            fontSize:F.sm, fontWeight:700,
             padding:'7px 13px', borderRadius:8, marginBottom:20,
           }}>🥗 ${r.nutritionHighlights}</div>`}
 
@@ -790,13 +783,13 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
               const isMissing = (r.missingIngredients||[]).some(mi => ing.toLowerCase().includes(mi.toLowerCase()));
               return html`<li key=${i} style=${{
                 display:'flex', alignItems:'center', gap:8, fontSize:F.base,
-                color: isMissing ? C.terra : C.charcoal, marginBottom:7,
-                fontWeight: isMissing ? 600 : 400,
+                color: C.charcoal, marginBottom:7,
+                fontWeight: isMissing ? 700 : 400,
               }}>
-                <span style=${{ color: isMissing ? C.terra : C.sage, marginTop:2, flexShrink:0 }}>${isMissing ? '✕' : '•'}</span>
+                <span style=${{ color: C.bark, marginTop:2, flexShrink:0 }}>${isMissing ? '✕' : '•'}</span>
                 <span>${ing}</span>
                 ${isMissing && html`<span style=${{
-                  background:C.orangeBg, color:C.terra, fontSize:F.xs, fontWeight:700,
+                  background:C.charcoal, color:'white', fontSize:F.xs, fontWeight:700,
                   padding:'2px 8px', borderRadius:99,
                 }}>missing</span>`}
               </li>`;
@@ -808,7 +801,7 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
             ${(r.instructions||[]).map((step,i) => html`<li key=${i} style=${{
               display:'flex', gap:12, fontSize:F.base, color:C.charcoal, marginBottom:16,
             }}>
-              <span style=${{ background:C.sage, color:'white', width:25, height:25, borderRadius:'50%',
+              <span style=${{ background:C.charcoal, color:'white', width:25, height:25, borderRadius:'50%',
                 display:'flex', alignItems:'center', justifyContent:'center',
                 fontSize:F.xs, fontWeight:700, flexShrink:0, marginTop:1 }}>${i+1}</span>
               <span style=${{ lineHeight:1.65 }}>${step}</span>
@@ -818,7 +811,7 @@ function RecipeModal({ r, onClose, bookmarked, onBookmark }) {
           <div style=${{ display:'flex', flexWrap:'wrap', justifyContent:'space-between', gap:12,
             paddingTop:16, borderTop:`1px solid ${C.border}` }}>
             <div style=${{ display:'flex', gap:8 }}>
-              ${btn(bookmarked?'🔖 Saved':'🤍 Save', bookmarked, C.bark, ()=>onBookmark(r.name))}
+              ${btn(bookmarked?'🔖 Saved':'🤍 Save', bookmarked, C.sage, ()=>onBookmark(r.name))}
             </div>
             <div style=${{ display:'flex', gap:8 }}>
               ${btn('↗ Share', false, C.bark, doShare)}
@@ -900,7 +893,7 @@ function App() {
   const savedList  = [...bookmarks].map(n => allRecipes.find(r=>r.name===n)).filter(Boolean);
 
   const headerBtn = (active, label, onClick) => html`<button onClick=${onClick} style=${{
-    background: active ? C.sage : 'transparent',
+    background: active ? C.charcoal : 'transparent',
     color: active ? 'white' : C.bark,
     border: 'none', padding: '7px 18px', borderRadius: 99,
     cursor: 'pointer', fontSize: F.sm, fontWeight: 500, transition: 'all .12s',
@@ -914,7 +907,7 @@ function App() {
         display:'flex', flexWrap:'wrap', alignItems:'center', justifyContent:'space-between', gap:12 }}>
         <div>
           <h1 class="font-serif" style=${{ fontSize:F.xxl, fontWeight:700, color:C.charcoal, margin:'0 0 3px' }}>
-            Bite<span style=${{ color:C.sage }}>Builder</span>
+            Bite<span style=${{ fontWeight:900 }}>Builder</span>
           </h1>
           <p style=${{ fontSize:F.sm, color:C.bark, margin:0 }}>${today()} · personalized meal ideas · free recipe data, no API key</p>
         </div>
@@ -957,8 +950,8 @@ function App() {
 
           <div>
             ${error && html`<div style=${{
-              background:C.orangeBg, color:C.terra,
-              border:`1px solid #F5D5C8`, borderRadius:12,
+              background:C.parchment, color:C.charcoal, fontWeight:600,
+              borderLeft:`3px solid ${C.charcoal}`, borderRadius:8,
               padding:'13px 16px', fontSize:F.base, marginBottom:16,
             }}>⚠ ${error}</div>`}
 
